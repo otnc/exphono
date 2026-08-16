@@ -1,41 +1,61 @@
 {
-  "name": "<package-name>",
+  "name": "exphono",
   "version": "0.0.0",
-  "description": "<package-description>",
-  "keywords": [],
-  "homepage": "<package-git>#readme",
+  "description": "Run your Express app on Hono. A migration-first Express compatibility layer for Node.js, Cloudflare Workers, Deno and Bun.",
+  "keywords": [
+    "express",
+    "hono",
+    "migration",
+    "compatibility",
+    "express-compat",
+    "node",
+    "cloudflare-workers",
+    "deno",
+    "bun",
+    "edge"
+  ],
+  "homepage": "https://github.com/otnc/exphono#readme",
   "bugs": {
-    "url": "<package-git>/issues"
+    "url": "https://github.com/otnc/exphono/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+<package-git>.git"
+    "url": "git+https://github.com/otnc/exphono.git"
   },
-  "license": "<package-license>",
-  "author": "<package-author>",
+  "license": "MIT",
+  "author": "otoneko. <pineapple2006.11.2@gmail.com>",
   "type": "module",
-  "main": "dist/index.cjs",
-  "module": "dist/index.mjs",
-  "types": "dist/index.d.mts",
+  "main": "dist/node/index.cjs",
+  "module": "dist/node/index.mjs",
+  "types": "dist/index.d.ts",
   "exports": {
     ".": {
       "types": {
-        "import": "./dist/index.d.mts",
+        "import": "./dist/index.d.ts",
         "require": "./dist/index.d.cts"
       },
-      "import": "./dist/index.mjs",
-      "require": "./dist/index.cjs"
-    }
+      "workerd": "./dist/edge/index.mjs",
+      "deno": "./dist/edge/index.mjs",
+      "bun": "./dist/node/index.mjs",
+      "node": {
+        "import": "./dist/node/index.mjs",
+        "require": "./dist/node/index.cjs"
+      },
+      "default": "./dist/edge/index.mjs"
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "dist"
   ],
+  "packageManager": "pnpm@10.34.5",
   "engines": {
-    "node": ">=22"
+    "node": ">=20",
+    "pnpm": ">=10"
   },
   "scripts": {
     "setup": "node scripts/setup.js",
-    "build": "tsdown",
+    "build": "tsdown && node scripts/postbuild.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
@@ -46,14 +66,41 @@
     "lint:fix": "biome lint --write",
     "check": "biome check --write",
     "ci": "biome ci",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "pnpm run build"
+  },
+  "peerDependencies": {
+    "@types/node": "*",
+    "hono": "^4"
+  },
+  "peerDependenciesMeta": {
+    "@types/node": {
+      "optional": true
+    }
+  },
+  "optionalDependencies": {
+    "@hono/node-server": "^2.1.1"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.6",
+    "@hono/node-server": "^2.1.1",
+    "@types/express": "^5.0.6",
     "@types/node": "^22.20.1",
     "@vitest/coverage-v8": "^4.1.10",
+    "exphono": "link:",
+    "express": "^5.2.1",
+    "express4": "npm:express@^4.22.2",
+    "hono": "^4.13.2",
+    "miniflare": "^4.20260730.0",
+    "rolldown": "^1.2.4",
     "tsdown": "^0.22.14",
     "typescript": "^6.0.3",
     "vitest": "^4.1.10"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@biomejs/biome",
+      "esbuild",
+      "workerd"
+    ]
   }
 }
