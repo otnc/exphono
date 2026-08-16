@@ -7,3 +7,7 @@ coverage/
 .env
 .env.*
 !.env.example
+
+# テスト用の一時ディレクトリ
+.consumption-tmp/
+.worker-tmp/
