@@ -9,7 +9,10 @@ const src = (p: string) => fileURLToPath(new URL(`./src/${p}`, import.meta.url))
  * `serve.ts` dynamically imports `@hono/node-server`, and bundlers follow dynamic
  * imports, so leaving it in drags `node:http` into a Workers bundle.
  */
-const edgeAlias = { [src('runtime/serve.js')]: src('runtime/serve.edge.ts') }
+const edgeAlias = {
+  [src('runtime/serve.js')]: src('runtime/serve.edge.ts'),
+  [src('runtime/files.js')]: src('runtime/files.edge.ts'),
+}
 
 /**
  * Four outputs:
