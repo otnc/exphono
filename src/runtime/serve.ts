@@ -87,3 +87,86 @@ function serveNode(
 
   return handle
 }
+
+/**
+ * Runs a request that arrived through a Node HTTP server rather than a Fetch handler.
+ *
+ * `http.createServer(app)` and supertest hand Express real IncomingMessage / ServerResponse
+ * objects, so they have to be converted into a Fetch Request and back again.
+ */
+export async function handleNodeRequest(
+  app: ServeTarget,
+  req: NodeIncomingMessage,
+  res: NodeServerResponse,
+): Promise<void> {
+  try {
+    const request = await toFetchRequest(req)
+    const response = await app.fetch(request)
+    await writeFetchResponse(response, res)
+  } catch (err) {
+    if (!res.headersSent) res.writeHead(500, { 'content-type': 'text/plain' })
+    res.end(err instanceof Error ? err.message : String(err))
+  }
+}
+
+export interface NodeIncomingMessage {
+  method?: string
+  url?: string
+  rawHeaders: string[]
+  headers: Record<string, string | string[] | undefined>
+  socket?: { encrypted?: boolean; remoteAddress?: string }
+}
+
+export interface NodeServerResponse {
+  headersSent: boolean
+  writeHead(status: number, headers?: Record<string, string | string[]>): unknown
+  write(chunk: unknown): unknown
+  end(chunk?: unknown): unknown
+}
+
+const BODYLESS = new Set(['GET', 'HEAD', 'DELETE', 'OPTIONS', 'TRACE'])
+
+async function toFetchRequest(req: NodeIncomingMessage): Promise<Request> {
+  const method = (req.method ?? 'GET').toUpperCase()
+  const scheme = req.socket?.encrypted ? 'https' : 'http'
+  const host = (req.headers.host as string | undefined) ?? 'localhost'
+  const url = new URL(req.url ?? '/', `${scheme}://${host}`)
+
+  const headers = new Headers()
+  for (let i = 0; i < req.rawHeaders.length; i += 2) {
+    const name = req.rawHeaders[i]
+    const value = req.rawHeaders[i + 1]
+    if (name !== undefined && value !== undefined) headers.append(name, value)
+  }
+
+  const init: RequestInit & { duplex?: string } = { method, headers }
+  if (!BODYLESS.has(method)) {
+    const { Readable } = await import('node:stream')
+    init.body = Readable.toWeb(req as never) as ReadableStream
+    init.duplex = 'half'
+  }
+  return new Request(url, init as RequestInit)
+}
+
+async function writeFetchResponse(response: Response, res: NodeServerResponse): Promise<void> {
+  const headers: Record<string, string | string[]> = {}
+  response.headers.forEach((value, key) => {
+    headers[key] = value
+  })
+  const setCookie = response.headers.getSetCookie?.() ?? []
+  if (setCookie.length > 0) headers['set-cookie'] = setCookie
+
+  res.writeHead(response.status, headers)
+
+  if (!response.body) {
+    res.end()
+    return
+  }
+  const reader = response.body.getReader()
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    res.write(value)
+  }
+  res.end()
+}

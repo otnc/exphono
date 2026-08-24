@@ -12,10 +12,12 @@
 import type { Context } from 'hono'
 import { ExphonoError, report } from './diagnostics.js'
 import type { CompatMode } from './inventory.js'
+import { type SendOptions, sendFile } from './middleware/send.js'
 import { kState } from './object-model.js'
 import type { ExpRequest, FakeSocket } from './request.js'
 import { MiniEmitter } from './runtime/event-emitter.js'
 import { type CookieOptions, serializeCookie } from './utils/cookie.js'
+import { lookupMimeType, withCharset } from './utils/mime.js'
 
 type Phase = 'idle' | 'streaming' | 'ended'
 
@@ -376,26 +378,43 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
     throw err
   },
 
-  /** Not implemented yet. */
-  sendFile(this: ExpResponse, _path: string, _options?: unknown, callback?: (e?: unknown) => void) {
-    const err = new ExphonoError('EXPHONO_E012', 'res.sendFile')
-    if (callback) {
-      callback(err)
-      return this
-    }
-    throw err
+  sendFile(this: ExpResponse, path: string, options?: unknown, callback?: (e?: unknown) => void) {
+    const opts = (typeof options === 'function' ? {} : (options ?? {})) as SendOptions
+    const cb = (typeof options === 'function' ? options : callback) as
+      | ((e?: unknown) => void)
+      | undefined
+    const req = this.req
+    if (!req) throw new Error('res.sendFile requires a request')
+
+    sendFile(req, this, path, opts)
+      .then(() => cb?.())
+      .catch((err: unknown) => {
+        if (cb) cb(err)
+        else req.next?.(err)
+      })
+    return this
   },
 
   download(
     this: ExpResponse,
     path: string,
-    filename?: string | ((e?: unknown) => void),
+    filename?: string | ((e?: unknown) => void) | Record<string, unknown>,
+    options?: unknown,
     callback?: (e?: unknown) => void,
   ) {
-    const name = typeof filename === 'string' ? filename : path
-    const cb = typeof filename === 'function' ? filename : callback
+    let name = path
+    let opts: Record<string, unknown> = {}
+    let cb = callback
+
+    if (typeof filename === 'function') cb = filename
+    else if (typeof filename === 'string') name = filename
+    else if (filename) opts = filename
+
+    if (typeof options === 'function') cb = options as (e?: unknown) => void
+    else if (options) opts = options as Record<string, unknown>
+
     this.attachment(name)
-    return this.sendFile(path, undefined, cb)
+    return this.sendFile(path, opts, cb)
   },
 
   /**
@@ -580,58 +599,6 @@ export function abortResponse(res: ExpResponse): void {
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-const MIME: Record<string, string> = {
-  html: 'text/html',
-  htm: 'text/html',
-  txt: 'text/plain',
-  text: 'text/plain',
-  json: 'application/json',
-  js: 'text/javascript',
-  css: 'text/css',
-  xml: 'application/xml',
-  csv: 'text/csv',
-  png: 'image/png',
-  jpg: 'image/jpeg',
-  jpeg: 'image/jpeg',
-  gif: 'image/gif',
-  svg: 'image/svg+xml',
-  webp: 'image/webp',
-  ico: 'image/x-icon',
-  pdf: 'application/pdf',
-  zip: 'application/zip',
-  bin: 'application/octet-stream',
-  wasm: 'application/wasm',
-}
-
-function lookupMimeType(ext: string): string {
-  return MIME[ext.replace(/^\./, '').toLowerCase()] ?? 'application/octet-stream'
-}
-
-function extnameOf(filename: string): string {
-  const base = filename.split(/[\\/]/).pop() ?? ''
-  const dot = base.lastIndexOf('.')
-  return dot === -1 ? '' : base.slice(dot + 1)
-}
-
-/** Minimal Content-Disposition builder. */
-function contentDisposition(filename?: string): string {
-  if (!filename) return 'attachment'
-  const base = filename.split(/[\\/]/).pop() ?? filename
-  // Plain ASCII names go as-is; anything else also gets an RFC 5987 filename*
-  if (/^[\x20-\x7e]*$/.test(base) && !/["\\]/.test(base)) {
-    return `attachment; filename="${base}"`
-  }
-  return `attachment; filename="${base.replace(/[^\x20-\x7e]/g, '?')}"; filename*=UTF-8''${encodeURIComponent(base)}`
-}
-
-function withCharset(type: string): string {
-  if (type.includes('charset')) return type
-  if (/^text\//.test(type) || type === 'application/json' || type === 'image/svg+xml') {
-    return `${type}; charset=utf-8`
-  }
-  return type
-}
-
 const STATUS_TEXT: Record<number, string> = {
   200: 'OK',
   201: 'Created',
@@ -666,4 +633,22 @@ const LINE_SEPARATORS = /[\u2028\u2029]/g
 function escapeLineSeparators(json: string | undefined): string | undefined {
   if (json === undefined) return undefined
   return json.replace(LINE_SEPARATORS, (c) => (c === '\u2028' ? '\\u2028' : '\\u2029'))
+}
+
+function extnameOf(filename: string): string {
+  const base = filename.split(/[\\/]/).pop() ?? filename
+  const dot = base.lastIndexOf('.')
+  return dot === -1 ? '' : base.slice(dot + 1)
+}
+
+/** Minimal Content-Disposition builder. */
+function contentDisposition(filename?: string): string {
+  if (!filename) return 'attachment'
+  const base = filename.split(/[\\/]/).pop() ?? filename
+  // Plain ASCII names go as-is; anything else also gets an RFC 5987 filename*
+  if (/^[\x20-\x7e]*$/.test(base) && !/["\\]/.test(base)) {
+    return `attachment; filename="${base}"`
+  }
+  const ascii = base.replace(/[^\x20-\x7e]/g, '?')
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(base)}`
 }
