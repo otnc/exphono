@@ -22,11 +22,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-<setup-steps>
-      - run: <pm> run ci
-      - run: <pm> run typecheck
-      - run: <pm> run test
-      - run: <pm> run build
+      # pnpm のバージョンは package.json の packageManager 欄から読む（単一ソース）
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install
+      - run: pnpm run ci
+      - run: pnpm run typecheck
+      - run: pnpm run test
+      - run: pnpm run build
 
       - name: Bump version
         id: bump
