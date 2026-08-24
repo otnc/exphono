@@ -11,16 +11,22 @@ import type { ExpRequest } from '../request.js'
 import type { ExpResponse } from '../response.js'
 import type { NextFunction, RequestHandler } from '../router/index.js'
 
+export type TypeOption = string | string[] | ((req: ExpRequest) => boolean)
+
 export interface BodyOptions {
-  /** Content types to accept. */
-  type?: string | string[]
+  /** Content types to accept, or a predicate. */
+  type?: TypeOption
   /** Byte limit, as a number or '100kb'. */
   limit?: number | string
+  /** Reject the body before parsing by throwing from here. */
+  verify?: (req: ExpRequest, res: ExpResponse, buf: Uint8Array, encoding: string) => void
+  /** Decompress gzip / deflate bodies. */
+  inflate?: boolean
   /** urlencoded only: parse nested keys. */
   extended?: boolean
-  /** JSON only: require the body to start with `{` or `[`. */
+  /** JSON only: only accept objects and arrays at the top level. */
   strict?: boolean
-  /** text only: character encoding. */
+  /** Charset assumed when the request does not name one. */
   defaultCharset?: string
 }
 
@@ -31,10 +37,9 @@ function parseLimit(limit: number | string | undefined): number {
   if (typeof limit === 'number') return limit
   const m = /^(\d+(?:\.\d+)?)\s*(b|kb|mb|gb)?$/i.exec(limit.trim())
   if (!m) return DEFAULT_LIMIT
-  const n = Number(m[1])
   const unit = (m[2] ?? 'b').toLowerCase()
   const mult = unit === 'kb' ? 1024 : unit === 'mb' ? 1024 ** 2 : unit === 'gb' ? 1024 ** 3 : 1
-  return Math.round(n * mult)
+  return Math.round(Number(m[1]) * mult)
 }
 
 function contentTypeOf(req: ExpRequest): string {
@@ -42,122 +47,238 @@ function contentTypeOf(req: ExpRequest): string {
   return (typeof v === 'string' ? v : '').split(';')[0]?.trim().toLowerCase() ?? ''
 }
 
-function typeMatches(actual: string, expected: string | string[]): boolean {
+function charsetOf(req: ExpRequest): string {
+  const v = req.get('content-type')
+  const m = /;\s*charset\s*=\s*"?([^";]+)"?/i.exec(typeof v === 'string' ? v : '')
+  return (m?.[1] ?? '').trim().toLowerCase()
+}
+
+function typeMatches(req: ExpRequest, expected: TypeOption): boolean {
+  if (typeof expected === 'function') return Boolean(expected(req))
+  const actual = contentTypeOf(req)
+  if (!actual) return false
   const list = Array.isArray(expected) ? expected : [expected]
   return list.some((want) => {
     const w = want.toLowerCase()
-    if (w === actual) return true
-    if (w.endsWith('/*')) return actual.startsWith(`${w.slice(0, -1)}`)
-    if (w === '*/*') return true
+    if (w === '*/*' || w === actual) return true
+    if (w.endsWith('/*')) return actual.startsWith(w.slice(0, -1))
     // Suffix form, e.g. '+json'
     if (w.startsWith('+')) return actual.endsWith(w)
     return false
   })
 }
 
-/** Methods that carry no body. */
+/**
+ * Whether the request carries no body at all.
+ *
+ * The headers alone are not enough: a Request built in-process and handed straight to
+ * `app.fetch()` has a body stream but no content-length.
+ */
 function hasNoBody(req: ExpRequest): boolean {
-  return req.method === 'GET' || req.method === 'HEAD' || req.method === 'DELETE'
+  if (req[kState].ctx.req.raw.body !== null) return false
+  return req.get('content-length') === undefined && req.get('transfer-encoding') === undefined
 }
 
-class PayloadTooLargeError extends Error {
-  status = 413
-  statusCode = 413
-  type = 'entity.too.large'
-  constructor(limit: number) {
-    super(`request entity too large (limit: ${limit} bytes)`)
-    this.name = 'PayloadTooLargeError'
-  }
-}
+class BodyError extends Error {
+  status: number
+  statusCode: number
+  type: string
+  body?: string
+  expected?: number
+  length?: number
+  limit?: number
+  charset?: string
+  encoding?: string
 
-class BadRequestError extends Error {
-  status = 400
-  statusCode = 400
-  type = 'entity.parse.failed'
-  constructor(message: string) {
+  constructor(status: number, type: string, message: string) {
     super(message)
-    this.name = 'BadRequestError'
+    this.name = 'BodyError'
+    this.status = status
+    this.statusCode = status
+    this.type = type
   }
 }
 
-async function readBytes(req: ExpRequest, limit: number): Promise<Uint8Array> {
-  const raw = req[kState].ctx.req.raw
+const INFLATABLE = new Set(['gzip', 'deflate'])
+
+async function readBytes(req: ExpRequest, limit: number, inflate: boolean): Promise<Uint8Array> {
   const declared = req.get('content-length')
-  if (typeof declared === 'string' && Number(declared) > limit) {
-    throw new PayloadTooLargeError(limit)
+  const hasLength = typeof declared === 'string' && declared !== ''
+
+  if (hasLength) {
+    if (!/^\d+$/.test(declared)) {
+      throw new BodyError(400, 'request.size.invalid', 'invalid content-length')
+    }
+    if (Number(declared) > limit) {
+      const err = new BodyError(413, 'entity.too.large', 'request entity too large')
+      err.expected = Number(declared)
+      err.length = Number(declared)
+      err.limit = limit
+      throw err
+    }
   }
-  const buf = new Uint8Array(await raw.arrayBuffer())
-  if (buf.byteLength > limit) throw new PayloadTooLargeError(limit)
+
+  const encoding = String(req.get('content-encoding') ?? 'identity').toLowerCase()
+  let stream = req[kState].ctx.req.raw.body
+
+  if (encoding !== 'identity') {
+    if (!inflate || !INFLATABLE.has(encoding)) {
+      const err = new BodyError(
+        415,
+        'encoding.unsupported',
+        `unsupported content encoding "${encoding}"`,
+      )
+      err.encoding = encoding
+      throw err
+    }
+    if (stream) stream = stream.pipeThrough(new DecompressionStream(encoding as 'gzip' | 'deflate'))
+  }
+
+  const chunks: Uint8Array[] = []
+  let total = 0
+
+  if (stream) {
+    const reader = stream.getReader()
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      total += value.byteLength
+      if (total > limit) {
+        const err = new BodyError(413, 'entity.too.large', 'request entity too large')
+        err.limit = limit
+        err.length = total
+        throw err
+      }
+      chunks.push(value)
+    }
+  }
+
+  // Only meaningful without inflation: the declared length counts compressed bytes
+  if (hasLength && encoding === 'identity' && Number(declared) !== total) {
+    const err = new BodyError(
+      400,
+      'request.size.invalid',
+      'request size did not match content length',
+    )
+    err.expected = Number(declared)
+    err.length = total
+    throw err
+  }
+
   req.complete = true
-  return buf
+
+  const out = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    out.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return out
+}
+
+function decode(bytes: Uint8Array, charset: string): string {
+  try {
+    return new TextDecoder(charset).decode(bytes)
+  } catch {
+    const err = new BodyError(
+      415,
+      'charset.unsupported',
+      `unsupported charset "${charset.toUpperCase()}"`,
+    )
+    err.charset = charset
+    throw err
+  }
 }
 
 function makeParser(
-  defaultType: string | string[],
+  defaultType: TypeOption,
   options: BodyOptions,
-  parse: (bytes: Uint8Array, req: ExpRequest) => unknown,
+  parse: (bytes: Uint8Array, charset: string) => unknown,
+  emptyValue: () => unknown,
 ): RequestHandler {
   const limit = parseLimit(options.limit)
   const wanted = options.type ?? defaultType
+  const inflate = options.inflate ?? true
+  const defaultCharset = (options.defaultCharset ?? 'utf-8').toLowerCase()
 
-  return (req: ExpRequest, _res: ExpResponse, next: NextFunction) => {
-    if (req.body !== undefined) return next()
-    if (hasNoBody(req)) {
-      req.body = emptyBodyFor(defaultType)
-      return next()
+  return (req: ExpRequest, res: ExpResponse, next: NextFunction) => {
+    if (req.body !== undefined) {
+      next()
+      return
     }
-    if (!typeMatches(contentTypeOf(req), wanted)) return next()
+    if (hasNoBody(req)) {
+      req.body = emptyValue()
+      next()
+      return
+    }
+    if (!typeMatches(req, wanted)) {
+      next()
+      return
+    }
 
-    readBytes(req, limit)
+    const charset = charsetOf(req) || defaultCharset
+
+    readBytes(req, limit, inflate)
       .then((bytes) => {
-        req.body = parse(bytes, req)
+        options.verify?.(req, res, bytes, charset)
+        req.body = bytes.byteLength === 0 ? emptyValue() : parse(bytes, charset)
         next()
       })
       .catch(next)
   }
 }
 
-function emptyBodyFor(type: string | string[]): unknown {
-  const t = Array.isArray(type) ? type[0] : type
-  if (t === 'application/json' || t === 'application/x-www-form-urlencoded') return {}
-  return undefined
-}
-
-const decoder = new TextDecoder()
-
 export function json(options: BodyOptions = {}): RequestHandler {
   const strict = options.strict ?? true
-  return makeParser('application/json', options, (bytes) => {
-    if (bytes.byteLength === 0) return {}
-    const text = decoder.decode(bytes)
-    if (strict) {
-      const first = text.trimStart()[0]
-      if (first !== '{' && first !== '[') {
-        throw new BadRequestError('Unexpected token in JSON body')
+  return makeParser(
+    'application/json',
+    options,
+    (bytes, charset) => {
+      const text = decode(bytes, charset)
+      const first = text.trimStart().charAt(0)
+      if (strict && first !== '{' && first !== '[') {
+        const err = new BodyError(400, 'entity.parse.failed', `Unexpected token ${first}`)
+        err.body = text
+        throw err
       }
-    }
-    try {
-      return JSON.parse(text)
-    } catch (e) {
-      throw new BadRequestError((e as Error).message)
-    }
-  })
+      try {
+        return JSON.parse(text)
+      } catch (e) {
+        const err = new BodyError(400, 'entity.parse.failed', (e as Error).message)
+        err.body = text
+        throw err
+      }
+    },
+    () => ({}),
+  )
 }
 
 export function text(options: BodyOptions = {}): RequestHandler {
-  return makeParser('text/plain', options, (bytes) => decoder.decode(bytes))
+  return makeParser(
+    'text/plain',
+    options,
+    (bytes, charset) => decode(bytes, charset),
+    () => '',
+  )
 }
 
 export function raw(options: BodyOptions = {}): RequestHandler {
-  return makeParser('application/octet-stream', options, (bytes) => bytes)
+  return makeParser(
+    'application/octet-stream',
+    options,
+    (bytes) => bytes,
+    () => new Uint8Array(0),
+  )
 }
 
 export function urlencoded(options: BodyOptions = {}): RequestHandler {
   const extended = options.extended ?? false
-  return makeParser('application/x-www-form-urlencoded', options, (bytes) => {
-    const text = decoder.decode(bytes)
-    return parseUrlencoded(text, extended)
-  })
+  return makeParser(
+    'application/x-www-form-urlencoded',
+    options,
+    (bytes, charset) => parseUrlencoded(decode(bytes, charset), extended),
+    () => ({}),
+  )
 }
 
 /**
@@ -170,8 +291,7 @@ export function parseUrlencoded(input: string, extended: boolean): Record<string
   const out: Record<string, unknown> = Object.create(null)
   if (input.length === 0) return out
 
-  const params = new URLSearchParams(input)
-  for (const [rawKey, value] of params) {
+  for (const [rawKey, value] of new URLSearchParams(input)) {
     if (isUnsafeKey(rawKey)) continue
     if (!extended) {
       assign(out, rawKey, value)
@@ -197,13 +317,12 @@ function assign(target: Record<string, unknown>, key: string, value: string): vo
   else target[key] = [existing, value]
 }
 
-/** `a[b][c]` → `['a','b','c']` / `c[]` → `['c','']` */
+/** `a[b][c]` becomes `['a','b','c']`; `c[]` becomes `['c','']`. */
 function parseBracketPath(key: string): string[] {
   const open = key.indexOf('[')
   if (open === -1) return [key]
-  const head = key.slice(0, open)
+  const parts: string[] = [key.slice(0, open)]
   const rest = key.slice(open)
-  const parts: string[] = [head]
   const re = /\[([^\]]*)\]/g
   let m = re.exec(rest)
   while (m) {

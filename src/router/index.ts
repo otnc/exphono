@@ -289,22 +289,13 @@ export function createRouter(options: RouterOptions = {}): RouterInstance {
     })
 
   router.use = (...args: unknown[]) => {
-    let path: PathSpec = '/'
-    let offset = 0
-    const first = args[0]
-    if (typeof first === 'string' || first instanceof RegExp || Array.isArray(first)) {
-      path = first as PathSpec
-      offset = 1
-    }
-    const handlers = args.slice(offset).flat() as Handler[]
-    if (handlers.length === 0) {
-      throw new TypeError('Router.use() requires a middleware function')
-    }
+    const { path, handlers } = splitPathAndHandlers(args)
+    if (handlers.length === 0) throw new TypeError('argument handler is required')
     for (const h of handlers) {
-      if (typeof h !== 'function') {
-        throw new TypeError(`Router.use() requires a middleware function but got a ${typeof h}`)
-      }
-      router.stack.push(new Layer(path, h, { isMount: true, matcher: matcherFor(path, false) }))
+      if (typeof h !== 'function') throw new TypeError('argument handler must be a function')
+      router.stack.push(
+        new Layer(path, h as Handler, { isMount: true, matcher: matcherFor(path, false) }),
+      )
     }
     return router
   }
@@ -473,4 +464,28 @@ function processParams(
     }
   }
   step()
+}
+
+/**
+ * Splits `use(...)` arguments into a path and handlers.
+ *
+ * Express decides whether the first argument is a path by peeling arrays until it finds
+ * a non-array: if that is not a function, the argument was a path. Handlers are then
+ * flattened to any depth.
+ */
+export function splitPathAndHandlers(args: unknown[]): { path: PathSpec; handlers: unknown[] } {
+  let path: PathSpec = '/'
+  let offset = 0
+
+  const first = args[0]
+  if (typeof first !== 'function') {
+    let probe: unknown = first
+    while (Array.isArray(probe) && probe.length !== 0) probe = probe[0]
+    if (typeof probe !== 'function') {
+      offset = 1
+      path = first as PathSpec
+    }
+  }
+
+  return { path, handlers: args.slice(offset).flat(Number.POSITIVE_INFINITY) }
 }

@@ -12,7 +12,7 @@ import { Hono } from 'hono'
 import { ExphonoError, report, setGlobalStrict } from './diagnostics.js'
 import { type CompatMode, HTTP_METHODS, type HttpMethod } from './inventory.js'
 import { finalHandler } from './middleware/final-handler.js'
-import { createAppProto } from './object-model.js'
+import { createAppProto, kState } from './object-model.js'
 import { createRequest, type ExpRequest, requestProto } from './request.js'
 import { abortResponse, createResponse, type ExpResponse, responseProto } from './response.js'
 import {
@@ -24,10 +24,11 @@ import {
   type Route,
   type RouterInstance,
   setPromiseErrorForwarding,
+  splitPathAndHandlers,
 } from './router/index.js'
 import type { PathSpec } from './router/matcher.js'
 import { mixinEmitter } from './runtime/event-emitter.js'
-import { serve } from './runtime/serve.js'
+import { handleNodeRequest, serve } from './runtime/serve.js'
 
 export interface ExphonoOptions {
   strict?: boolean
@@ -138,6 +139,11 @@ const DEFAULT_SETTINGS_V5: Record<string, unknown> = {
 
 export function createApplication(compatDefault: CompatMode = '5'): Application {
   const app = ((req: ExpRequest, res: ExpResponse, next: NextFunction) => {
+    // http.createServer(app) and supertest call this with real Node objects
+    if (isNodeReqRes(req, res)) {
+      void handleNodeRequest(app, req as never, res as never)
+      return
+    }
     app.handle(req, res, next)
   }) as Application
 
@@ -218,34 +224,15 @@ export function createApplication(compatDefault: CompatMode = '5'): Application 
 
   // Routing
   app.use = (...args: unknown[]) => {
-    let path: PathSpec = '/'
-    let offset = 0
-    const first = args[0]
-    if (typeof first === 'string' || first instanceof RegExp || Array.isArray(first)) {
-      path = first as PathSpec
-      offset = 1
-    }
-    const handlers = args.slice(offset).flat()
+    const { path, handlers } = splitPathAndHandlers(args)
+    if (handlers.length === 0) throw new TypeError('app.use() requires a middleware function')
 
     for (const h of handlers) {
+      if (typeof h !== 'function') throw new TypeError('argument handler must be a function')
+
       const sub = h as Partial<Application>
-      if (typeof h === 'function' && sub.handle && sub.set && sub.settings) {
-        // Mounting a sub-app
-        sub.mountpath = typeof path === 'string' ? path : '/'
-        sub.parent = app
-        router.use(path, (req: ExpRequest, res: ExpResponse, next: NextFunction) => {
-          const child = h as Application
-          const origReq = Object.getPrototypeOf(req)
-          const origRes = Object.getPrototypeOf(res)
-          Object.setPrototypeOf(req, child.request)
-          Object.setPrototypeOf(res, child.response)
-          child.handle(req, res, (err?: unknown) => {
-            Object.setPrototypeOf(req, origReq)
-            Object.setPrototypeOf(res, origRes)
-            next(err)
-          })
-        })
-        ;(h as unknown as { emit: (e: string, a: unknown) => void }).emit('mount', app)
+      if (sub.handle && sub.set && sub.settings) {
+        mountSubApp(app, router, path, h as Application)
         continue
       }
       router.use(path, h as RequestHandler)
@@ -406,4 +393,36 @@ function readEnv(): string {
   } catch {
     return 'development'
   }
+}
+
+/** True when these came from a Node HTTP server rather than from exphono. */
+function isNodeReqRes(req: unknown, res: unknown): boolean {
+  if (typeof req !== 'object' || req === null) return false
+  if (kState in (req as Record<symbol, unknown>)) return false
+  return typeof (res as { writeHead?: unknown })?.writeHead === 'function'
+}
+
+/** Wires a sub-app in, swapping prototypes while it handles the request. */
+function mountSubApp(
+  parent: Application,
+  router: RouterInstance,
+  path: PathSpec,
+  child: Application,
+): void {
+  child.mountpath = typeof path === 'string' ? path : '/'
+  child.parent = parent
+
+  router.use(path, (req: ExpRequest, res: ExpResponse, next: NextFunction) => {
+    const origReq = Object.getPrototypeOf(req)
+    const origRes = Object.getPrototypeOf(res)
+    Object.setPrototypeOf(req, child.request)
+    Object.setPrototypeOf(res, child.response)
+    child.handle(req, res, (err?: unknown) => {
+      Object.setPrototypeOf(req, origReq)
+      Object.setPrototypeOf(res, origRes)
+      next(err)
+    })
+  })
+
+  child.emit('mount', parent)
 }
