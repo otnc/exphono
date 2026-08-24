@@ -10,3 +10,7 @@ export type { ServerHandle, ServeTarget } from './serve.js'
 export function serve(): never {
   return fail('EXPHONO_E001', 'app.listen')
 }
+
+export function handleNodeRequest(): never {
+  return fail('EXPHONO_E001', 'http.createServer(app)')
+}

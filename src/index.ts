@@ -10,6 +10,7 @@ import { type Application, createApplication, type ExphonoOptions } from './appl
 import { report } from './diagnostics.js'
 import type { CompatMode } from './inventory.js'
 import { json, raw, text, urlencoded } from './middleware/body.js'
+import { serveStatic } from './middleware/static.js'
 import { type ExpRequest, requestProto } from './request.js'
 import { type ExpResponse, responseProto } from './response.js'
 import type { RouterOptions } from './router/index.js'
@@ -52,7 +53,7 @@ interface ExpressFactory {
   raw: typeof raw
   text: typeof text
   urlencoded: typeof urlencoded
-  static: (root: string, options?: unknown) => never
+  static: typeof serveStatic
   query: (options?: unknown) => never
 
   // exphono additions
@@ -63,11 +64,6 @@ interface ExpressFactory {
 
 function express(): Application {
   return createApplication(defaultCompat)
-}
-
-/** Not implemented yet. */
-function serveStatic(_root: string, _options?: unknown): never {
-  return report('EXPHONO_E012', { context: 'express.static' }) as never
 }
 
 /** Express 4 query parser middleware; removed in v5. */
