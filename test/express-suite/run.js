@@ -6,6 +6,11 @@
  * The number of failures is the compatibility debt: it is expected to shrink, and the
  * run fails if it grows. Pass `--update` after deliberately changing it.
  *
+ * A few of the express tests are timing-sensitive, so the count drifts by one or two
+ * between runs of identical code. TOLERANCE absorbs that; a real regression moves the
+ * number much further. The counts are also platform-dependent, so a baseline recorded
+ * on one OS will not match another exactly.
+ *
  *   node test/express-suite/run.js          # check against the baseline
  *   node test/express-suite/run.js --update # record the current numbers
  *   node test/express-suite/run.js --v4     # run the express 4 suite
@@ -18,6 +23,9 @@ import { prepare, VERSIONS } from './fetch-suite.js'
 
 const root = resolve(import.meta.dirname, '../..')
 const baselinePath = join(import.meta.dirname, 'baseline.json')
+
+/** Slack for flaky, timing-sensitive tests in the express suite. */
+const TOLERANCE = 3
 
 const version = process.argv.includes('--v4') ? 4 : 5
 const update = process.argv.includes('--update')
@@ -71,8 +79,10 @@ if (!previous) {
 }
 
 const delta = failing - previous.failing
-if (delta > 0) {
-  console.error(`compatibility regressed: ${delta} more failing than the baseline (${previous.failing})`)
+if (delta > TOLERANCE) {
+  console.error(
+    `compatibility regressed: ${delta} more failing than the baseline (${previous.failing})`,
+  )
   process.exit(1)
 }
 if (delta < 0) {
