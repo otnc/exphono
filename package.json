@@ -43,7 +43,29 @@
       },
       "default": "./dist/edge/index.mjs"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./v4": {
+      "types": "./dist/v4.d.ts",
+      "workerd": "./dist/edge/v4.mjs",
+      "deno": "./dist/edge/v4.mjs",
+      "bun": "./dist/node/v4.mjs",
+      "node": {
+        "import": "./dist/node/v4.mjs",
+        "require": "./dist/node/v4.cjs"
+      },
+      "default": "./dist/edge/v4.mjs"
+    },
+    "./v5": {
+      "types": "./dist/v5.d.ts",
+      "workerd": "./dist/edge/v5.mjs",
+      "deno": "./dist/edge/v5.mjs",
+      "bun": "./dist/node/v5.mjs",
+      "node": {
+        "import": "./dist/node/v5.mjs",
+        "require": "./dist/node/v5.cjs"
+      },
+      "default": "./dist/edge/v5.mjs"
+    }
   },
   "files": [
     "dist"

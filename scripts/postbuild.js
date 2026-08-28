@@ -3,13 +3,16 @@
  * as dead weight.
  */
 
-import { rmSync } from 'node:fs'
+import { readdirSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
 const dist = join(import.meta.dirname, '..', 'dist')
 
-for (const stray of ['index.cjs', 'index.js', 'index.mjs']) {
-  rmSync(join(dist, stray), { force: true })
+for (const name of readdirSync(dist)) {
+  if (name.endsWith('.d.ts') || name.endsWith('.d.cts') || name.endsWith('.d.mts')) continue
+  const full = join(dist, name)
+  if (statSync(full).isDirectory()) continue
+  rmSync(full, { force: true })
 }
 
 console.log('postbuild: removed type-only build strays from dist/')

@@ -18,6 +18,7 @@ import type { ExpRequest, FakeSocket } from './request.js'
 import { MiniEmitter } from './runtime/event-emitter.js'
 import { type CookieOptions, serializeCookie } from './utils/cookie.js'
 import { lookupMimeType, withCharset } from './utils/mime.js'
+import { encodeUrl } from './utils/url.js'
 
 type Phase = 'idle' | 'streaming' | 'ended'
 
@@ -66,7 +67,7 @@ export interface ExpResponse {
   cookie(name: string, value: unknown, options?: CookieOptions): this
   clearCookie(name: string, options?: CookieOptions): this
   attachment(filename?: string): this
-  format(handlers: Record<string, () => void>): this
+  format(handlers: Record<string, FormatHandler>): this
   sendFile(path: string, options?: unknown, callback?: (err?: unknown) => void): this
   download(
     path: string,
@@ -95,6 +96,13 @@ export interface ExpResponse {
 
   [kState]: ResponseState
 }
+
+/** `res.format` hands each handler the same arguments Express does. */
+export type FormatHandler = (
+  req: ExpRequest,
+  res: ExpResponse,
+  next: (err?: unknown) => void,
+) => void
 
 /** Exported as `express.response`. */
 export const responseProto = {} as ExpResponse
@@ -214,7 +222,7 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
   },
 
   location(this: ExpResponse, url: string) {
-    setHeaderValue(this, 'location', encodeURI(url))
+    setHeaderValue(this, 'location', encodeUrl(url))
     return this
   },
 
@@ -262,9 +270,10 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
     if (body == null) {
       payload = new Uint8Array(0)
     } else if (typeof body === 'string') {
-      if (!s.headers.has('content-type')) {
-        setHeaderValue(this, 'content-type', 'text/html; charset=utf-8')
-      }
+      // A string body is always utf-8, so a type set earlier gets the charset added
+      const existing = s.headers.get('content-type')
+      if (existing) setHeaderValue(this, 'content-type', withCharset(existing))
+      else setHeaderValue(this, 'content-type', 'text/html; charset=utf-8')
       payload = encoder.encode(body)
     } else if (body instanceof Uint8Array) {
       if (!s.headers.has('content-type')) {
@@ -355,27 +364,31 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
     return this
   },
 
-  format(this: ExpResponse, handlers: Record<string, () => void>) {
+  format(this: ExpResponse, handlers: Record<string, FormatHandler>) {
+    const req = this.req
+    const next = req?.next
     const keys = Object.keys(handlers).filter((k) => k !== 'default')
-    const chosen = keys.length > 0 ? this.req?.accepts(...keys) : undefined
+    const chosen = keys.length > 0 ? req?.accepts(...keys) : false
+    const key = Array.isArray(chosen) ? chosen[0] : chosen
+
     this.vary('Accept')
 
-    const pick = Array.isArray(chosen) ? chosen[0] : chosen
-    if (typeof pick === 'string' && handlers[pick]) {
-      this.type(pick)
-      handlers[pick]()
-      return this
+    if (typeof key === 'string' && handlers[key]) {
+      // The type goes on raw; send() adds the charset afterwards
+      setHeaderValue(this, 'content-type', normalizeType(key))
+      handlers[key](req as ExpRequest, this, next as (e?: unknown) => void)
+    } else if (handlers.default) {
+      handlers.default(req as ExpRequest, this, next as (e?: unknown) => void)
+    } else {
+      const err = Object.assign(new Error('Not Acceptable'), {
+        status: 406,
+        statusCode: 406,
+        types: keys.map((k) => normalizeType(k)),
+      })
+      if (next) next(err)
+      else throw err
     }
-    if (handlers.default) {
-      handlers.default()
-      return this
-    }
-    const err = Object.assign(new Error('Not Acceptable'), {
-      status: 406,
-      statusCode: 406,
-      types: keys,
-    })
-    throw err
+    return this
   },
 
   sendFile(this: ExpResponse, path: string, options?: unknown, callback?: (e?: unknown) => void) {
@@ -651,4 +664,9 @@ function contentDisposition(filename?: string): string {
   }
   const ascii = base.replace(/[^\x20-\x7e]/g, '?')
   return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(base)}`
+}
+
+/** Turns a shorthand like 'html' into a full media type, leaving full types alone. */
+function normalizeType(type: string): string {
+  return type.includes('/') ? type : lookupMimeType(type)
 }
