@@ -42,8 +42,10 @@ export interface ExpRequest {
   baseUrl: string
   params: Record<string, string>
   body: unknown
-  cookies: Record<string, string>
-  signedCookies: Record<string, string>
+  cookies?: Record<string, string>
+  signedCookies?: Record<string, string>
+  /** Set by cookie-parser; res.cookie({ signed: true }) needs it. */
+  secret?: string
   res?: unknown
   next?: (err?: unknown) => void
   route?: unknown
@@ -448,8 +450,8 @@ export function createRequest({ ctx, proto, compat }: CreateRequestOptions): Exp
   req.baseUrl = ''
   req.params = {}
   req.body = undefined
-  req.cookies = {}
-  req.signedCookies = {}
+  // Left unset on purpose: cookie-parser skips the request entirely when req.cookies
+  // already exists, so pre-populating them disables it
   req.complete = false
 
   return req

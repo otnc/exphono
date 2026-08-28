@@ -19,16 +19,25 @@ export function serializeCookie(name: string, value: string, options: CookieOpti
   const parts = [`${name}=${encode(value)}`]
 
   if (options.maxAge !== undefined) {
-    // Express takes milliseconds here, not seconds
-    parts.push(`Max-Age=${Math.floor(options.maxAge / 1000)}`)
+    if (!Number.isFinite(options.maxAge)) throw new TypeError('option maxAge is invalid')
+    parts.push(`Max-Age=${Math.floor(options.maxAge)}`)
   }
   if (options.domain) parts.push(`Domain=${options.domain}`)
   parts.push(`Path=${options.path ?? '/'}`)
-  if (options.expires) parts.push(`Expires=${options.expires.toUTCString()}`)
+  if (options.expires) {
+    if (Number.isNaN(options.expires.getTime())) throw new TypeError('option expires is invalid')
+    parts.push(`Expires=${options.expires.toUTCString()}`)
+  }
   if (options.httpOnly) parts.push('HttpOnly')
   if (options.secure) parts.push('Secure')
   if (options.partitioned) parts.push('Partitioned')
-  if (options.priority) parts.push(`Priority=${capitalize(options.priority)}`)
+  if (options.priority) {
+    const priority = String(options.priority).toLowerCase()
+    if (!['low', 'medium', 'high'].includes(priority)) {
+      throw new TypeError('option priority is invalid')
+    }
+    parts.push(`Priority=${capitalize(priority)}`)
+  }
   if (options.sameSite) {
     const v = options.sameSite === true ? 'Strict' : capitalize(String(options.sameSite))
     parts.push(`SameSite=${v}`)

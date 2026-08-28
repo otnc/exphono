@@ -272,8 +272,9 @@ const REQUEST: readonly ApiEntry[] = [
   p('request', 'app'),
   p('request', 'baseUrl'),
   p('request', 'body'),
-  p('request', 'cookies'),
-  p('request', 'signedCookies'),
+  // Express leaves these unset; cookie-parser creates them
+  p('request', 'cookies', BOTH, 'F', undefined, 'set by cookie-parser'),
+  p('request', 'signedCookies', BOTH, 'F', undefined, 'set by cookie-parser'),
   p('request', 'method'),
   p('request', 'originalUrl'),
   p('request', 'params'),
