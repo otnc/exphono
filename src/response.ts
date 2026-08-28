@@ -17,6 +17,7 @@ import { kState } from './object-model.js'
 import type { ExpRequest, FakeSocket } from './request.js'
 import { MiniEmitter } from './runtime/event-emitter.js'
 import { type CookieOptions, serializeCookie } from './utils/cookie.js'
+import { sign } from './utils/hmac.js'
 import { lookupMimeType, withCharset } from './utils/mime.js'
 import { encodeUrl } from './utils/url.js'
 
@@ -345,12 +346,28 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
   },
 
   cookie(this: ExpResponse, name: string, value: unknown, options: CookieOptions = {}) {
-    const raw = typeof value === 'object' ? `j:${JSON.stringify(value)}` : String(value)
+    let raw = typeof value === 'object' ? `j:${JSON.stringify(value)}` : String(value)
+
     if (options.signed) {
-      // Signing needs a synchronous HMAC; not wired up yet
-      report('EXPHONO_E012', { context: 'res.cookie({ signed: true })' })
+      // cookie-parser puts the secret on the request; without it there is nothing to sign with
+      const secret = this.req?.secret
+      if (!secret) throw new Error('cookieParser("secret") required for signed cookies')
+      raw = `s:${sign(raw, secret)}`
     }
-    st(this).headers.append('set-cookie', serializeCookie(name, raw, options))
+
+    const opts: CookieOptions = { ...options }
+    if (opts.maxAge != null) {
+      const maxAge = Number(opts.maxAge)
+      if (!Number.isNaN(maxAge)) {
+        // Express sends both, deriving the absolute time from the relative one
+        opts.expires = new Date(Date.now() + maxAge)
+        opts.maxAge = Math.floor(maxAge / 1000)
+      } else {
+        throw new TypeError('option maxAge is invalid')
+      }
+    }
+
+    st(this).headers.append('set-cookie', serializeCookie(name, raw, opts))
     return this
   },
 

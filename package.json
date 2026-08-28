@@ -112,6 +112,7 @@
     "@vitest/coverage-v8": "^4.1.11",
     "after": "^0.8.2",
     "cookie-parser": "^1.4.7",
+    "cookie-signature": "^1.2.2",
     "exphono": "link:",
     "express": "^5.2.1",
     "express4": "npm:express@^4.22.2",

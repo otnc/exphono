@@ -228,7 +228,11 @@ describe('inventory agrees with the implementation', () => {
 
   it("every inventory entry for 'request' exists on a live request", async () => {
     const { req } = await captureLiveReqRes()
-    const names = surfaceApisFor('request', '5').map((e) => e.name)
+    // Express leaves these to cookie-parser, and creating them here would disable it
+    const parserOwned = new Set(['cookies', 'signedCookies'])
+    const names = surfaceApisFor('request', '5')
+      .map((e) => e.name)
+      .filter((n) => !parserOwned.has(n))
     expect(missing(names, req)).toEqual([])
   })
 
