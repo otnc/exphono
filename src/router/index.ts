@@ -392,6 +392,8 @@ export function createRouter(options: RouterOptions = {}): RouterInstance {
         return
       }
 
+      // Express exposes the current next() on the request; res.format and friends use it
+      req.next = next
       req.params = opts.mergeParams
         ? { ...parentParams, ...layer.params }
         : { ...parentParams, ...layer.params }

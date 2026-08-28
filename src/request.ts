@@ -11,6 +11,7 @@ import type { CompatMode } from './inventory.js'
 import { parseUrlencoded } from './middleware/body.js'
 import { defineLazyGetter, invalidateLazy, kState } from './object-model.js'
 import { accepts, acceptsSimple, isFresh, isType, parseRange } from './utils/negotiation.js'
+import { compileTrust, forwardedChain, resolveAddress } from './utils/trust-proxy.js'
 
 export interface FakeSocket {
   remoteAddress: string | undefined
@@ -81,6 +82,13 @@ export interface ExpRequest {
   acceptsCharsets(...charsets: string[]): string | string[] | false
   acceptsEncodings(...encodings: string[]): string | string[] | false
   acceptsLanguages(...langs: string[]): string | string[] | false
+  range(size: number, options?: { combine?: boolean }): unknown
+
+  // Express 4 only; present under compat=5 too, but they report a diagnostic
+  param(name: string, defaultValue?: unknown): unknown
+  acceptsCharset(...charsets: string[]): string | string[] | false
+  acceptsEncoding(...encodings: string[]): string | string[] | false
+  acceptsLanguage(...langs: string[]): string | string[] | false
 
   [kState]: RequestState
 }
@@ -217,7 +225,11 @@ defineLazyGetter(requestProto, 'rawHeaders', function (this: ExpRequest) {
 })
 
 defineLazyGetter(requestProto, 'protocol', function (this: ExpRequest) {
-  return this[kState].parsed.protocol.replace(':', '')
+  const direct = this[kState].parsed.protocol.replace(':', '')
+  if (!trustFn(this)(this.socket.remoteAddress ?? '', 0)) return direct
+  const forwarded = str(headerOf(this, 'x-forwarded-proto'))
+  if (!forwarded) return direct
+  return (forwarded.split(',')[0] ?? direct).trim() || direct
 })
 
 defineLazyGetter(requestProto, 'secure', function (this: ExpRequest) {
@@ -225,7 +237,7 @@ defineLazyGetter(requestProto, 'secure', function (this: ExpRequest) {
 })
 
 defineLazyGetter(requestProto, 'host', function (this: ExpRequest) {
-  const raw = (headerOf(this, 'host') as string | undefined) ?? this[kState].parsed.host
+  const raw = hostHeader(this)
   if (!raw) return ''
   // Express 4 strips the port, Express 5 keeps it
   if (this[kState].compat === '4') return stripPort(raw)
@@ -233,9 +245,23 @@ defineLazyGetter(requestProto, 'host', function (this: ExpRequest) {
 })
 
 defineLazyGetter(requestProto, 'hostname', function (this: ExpRequest) {
-  const raw = (headerOf(this, 'host') as string | undefined) ?? this[kState].parsed.host
+  const raw = hostHeader(this)
   return raw ? stripPort(raw) : ''
 })
+
+function hostHeader(req: ExpRequest): string {
+  if (trustFn(req)(req.socket.remoteAddress ?? '', 0)) {
+    const forwarded = str(headerOf(req, 'x-forwarded-host'))
+    // Only the first value is meaningful; the rest are upstream hops
+    if (forwarded) return (forwarded.split(',')[0] ?? '').trim()
+  }
+  return str(headerOf(req, 'host')) ?? req[kState].parsed.host
+}
+
+/** The compiled `trust proxy` setting for this request's app. */
+function trustFn(req: ExpRequest) {
+  return compileTrust(appSetting(req, 'trust proxy') as never)
+}
 
 function stripPort(host: string): string {
   // Keep IPv6 literals such as [::1]:3000 intact
@@ -285,21 +311,17 @@ defineLazyGetter(requestProto, 'subdomains', function (this: ExpRequest) {
 })
 
 defineLazyGetter(requestProto, 'ips', function (this: ExpRequest) {
-  const trust = appSetting(this, 'trust proxy')
-  if (!trust) return []
-  const forwarded = headerOf(this, 'x-forwarded-for')
-  if (typeof forwarded !== 'string') return []
-  return forwarded
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .reverse()
+  const trust = trustFn(this)
+  const chain = forwardedChain(str(headerOf(this, 'x-forwarded-for')))
+  return trust(this.socket.remoteAddress ?? '', 0) ? chain.slice().reverse() : []
 })
 
 defineLazyGetter(requestProto, 'ip', function (this: ExpRequest) {
-  const ips = this.ips
-  if (ips.length > 0) return ips[0]
-  return this.socket.remoteAddress
+  return resolveAddress(
+    this.socket.remoteAddress,
+    forwardedChain(str(headerOf(this, 'x-forwarded-for'))),
+    trustFn(this),
+  )
 })
 
 defineLazyGetter(requestProto, 'fresh', function (this: ExpRequest) {
@@ -350,7 +372,8 @@ function makeFakeSocket(req: ExpRequest): FakeSocket {
   const socket: FakeSocket = {
     remoteAddress: undefined,
     remotePort: undefined,
-    encrypted: req.protocol === 'https',
+    // Read the URL directly: req.protocol consults the socket, which would recurse
+    encrypted: req[kState].parsed.protocol === 'https:',
     destroyed: false,
     readable: true,
     writable: true,
