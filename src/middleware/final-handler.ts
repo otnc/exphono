@@ -1,6 +1,5 @@
 /**
- * Default error handler: 404 when nothing handled the request, otherwise the error's
- * status or 500. Stack traces are hidden in production.
+ * Default error handler: 404 when nothing handled the request, otherwise the error's status or 500. Stack traces are hidden in production.
  */
 
 import type { ExpRequest } from '../request.js'

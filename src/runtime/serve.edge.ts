@@ -1,6 +1,5 @@
 /**
- * Edge replacement for `serve.ts`, aliased in at build time. Keeps `@hono/node-server`
- * and `node:http` out of the edge bundle entirely.
+ * Edge replacement for `serve.ts`, aliased in at build time. Keeps `@hono/node-server` and `node:http` out of the edge bundle entirely.
  */
 
 import { fail } from '../diagnostics.js'

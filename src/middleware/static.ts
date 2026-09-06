@@ -1,8 +1,7 @@
 /**
  * `express.static`.
  *
- * Falls through to the next middleware by default, so a missing file is a 404 from the
- * router rather than from here.
+ * Falls through to the next middleware by default, so a missing file is a 404 from the router rather than from here.
  */
 
 import { report } from '../diagnostics.js'

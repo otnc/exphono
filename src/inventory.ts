@@ -1,8 +1,7 @@
 /**
- * Single source of truth for every public API exphono exposes.
+ * Single source of truth for every public API ExpHono exposes.
  *
- * Drives the surface tests, the compatibility table and the migration CLI.
- * Compiled from the express 4.22.2 / 5.2.1 / router 2.2.0 sources.
+ * Drives the surface tests, the compatibility table and the migration CLI. Compiled from the express 4.22.2 / 5.2.1 / router 2.2.0 sources.
  */
 
 /** How faithfully an API is reproduced. */
@@ -50,12 +49,9 @@ export interface ApiEntry {
 }
 
 /**
- * The 35 HTTP methods Express registers. Hard-coded because `http.METHODS` does not
- * exist on the edge; express 4 and 5 were verified to agree on this list.
+ * The 35 HTTP methods Express registers. Hard-coded because `http.METHODS` does not exist on the edge; express 4 and 5 were verified to agree on this list.
  *
- * `m-search` is only reachable as `app['m-search'](...)`, `delete` is a reserved word
- * that still works as a property, and `query` is a method here, unrelated to the
- * `query parser` setting.
+ * `m-search` is only reachable as `app['m-search'](...)`, `delete` is a reserved word that still works as a property, and `query` is a method here, unrelated to the `query parser` setting.
  */
 export const HTTP_METHODS = [
   'acl',

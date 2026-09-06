@@ -1,8 +1,7 @@
 /**
  * Express's `req` on top of a Fetch Request.
  *
- * Created with `Object.create(app.request)`; derived values are lazy getters on the
- * prototype that cache onto the instance.
+ * Created with `Object.create(app.request)`; derived values are lazy getters on the prototype that cache onto the instance.
  */
 
 import type { Context } from 'hono'
@@ -50,7 +49,7 @@ export interface ExpRequest {
   next?: (err?: unknown) => void
   route?: unknown
 
-  // exphono additions
+  // ExpHono additions
   readonly hono: Context
   readonly raw: globalThis.Request
   readonly env: unknown
@@ -281,10 +280,9 @@ defineLazyGetter(requestProto, 'xhr', function (this: ExpRequest) {
 })
 
 /**
- * `req.query`。
+ * `req.query`.
  *
- * Express 4 defaults to the extended parser and a normal prototype; Express 5 uses the
- * simple parser and a null prototype.
+ * Express 4 defaults to the extended parser and a normal prototype; Express 5 uses the simple parser and a null prototype.
  */
 defineLazyGetter(requestProto, 'query', function (this: ExpRequest) {
   const search = this[kState].parsed.search.replace(/^\?/, '')
@@ -367,8 +365,7 @@ defineLazyGetter(requestProto, 'connection', function (this: ExpRequest) {
 })
 
 /**
- * Stand-in for a Node socket. on-finished, proxy-addr and morgan read it, so the
- * shape is there, but none of the operations do anything.
+ * Stand-in for a Node socket. on-finished, proxy-addr and morgan read it, so the shape is there, but none of the operations do anything.
  */
 function makeFakeSocket(req: ExpRequest): FakeSocket {
   const socket: FakeSocket = {
@@ -450,8 +447,7 @@ export function createRequest({ ctx, proto, compat }: CreateRequestOptions): Exp
   req.baseUrl = ''
   req.params = {}
   req.body = undefined
-  // Left unset on purpose: cookie-parser skips the request entirely when req.cookies
-  // already exists, so pre-populating them disables it
+  // Left unset on purpose: cookie-parser skips the request entirely when req.cookies already exists, so pre-populating them disables it
   req.complete = false
 
   return req

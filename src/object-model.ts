@@ -5,16 +5,14 @@
  *   app.response.ok = fn       affects one app
  *   req.user = x               affects one request
  *
- * Express mutates Node's IncomingMessage with setPrototypeOf; exphono creates its own
- * objects, so Object.create is enough.
+ * Express mutates Node's IncomingMessage with setPrototypeOf; ExpHono creates its own objects, so Object.create is enough.
  */
 
 /** Internal state, kept off the public surface. */
 export const kState = Symbol('exphono.state')
 
 /**
- * Define a getter on the prototype that caches its result as an own property on first
- * access, so derived values are computed once per request without leaking between them.
+ * Define a getter on the prototype that caches its result as an own property on first access, so derived values are computed once per request without leaking between them.
  */
 export function defineLazyGetter<T extends object>(
   proto: T,

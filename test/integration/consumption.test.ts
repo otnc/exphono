@@ -1,9 +1,7 @@
 /**
  * Every import / require form an Express user might write.
  *
- * Loads the build output rather than the source, since the CJS `module.exports = express`
- * shape depends on the build config, and resolves by package name so the `exports` map
- * is exercised too (the repo is linked into its own devDependencies).
+ * Loads the build output rather than the source, since the CJS `module.exports = express` shape depends on the build config, and resolves by package name so the `exports` map is exercised too (the repo is linked into its own devDependencies).
  */
 
 import { execFileSync } from 'node:child_process'

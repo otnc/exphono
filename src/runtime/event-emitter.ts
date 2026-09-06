@@ -1,6 +1,5 @@
 /**
- * Minimal EventEmitter. An Express `app` is an EventEmitter (`app.on('mount', ...)` is
- * public API), but `node:events` is not always available on the edge.
+ * Minimal EventEmitter. An Express `app` is an EventEmitter (`app.on('mount', ...)` is public API), but `node:events` is not always available on the edge.
  */
 
 type Listener = (...args: unknown[]) => void
@@ -111,8 +110,7 @@ export class MiniEmitter {
 /**
  * Mixes the EventEmitter API onto a plain object, like Express does.
  *
- * `_events` / `_eventsCount` / `_maxListeners` are Node internals that some libraries read
- * directly, so they are exposed too.
+ * `_events` / `_eventsCount` / `_maxListeners` are Node internals that some libraries read directly, so they are exposed too.
  */
 export function mixinEmitter<T extends object>(target: T): T {
   const emitter = new MiniEmitter()

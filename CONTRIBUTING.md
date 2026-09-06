@@ -1,12 +1,12 @@
 # Contributing
 
-Thanks for your interest in improving exphono!
+Thanks for your interest in improving ExpHono!
 This guide gets you set up and explains how the project is put together.
 If anything here is unclear, opening an issue to ask is welcome.
 
 ## Getting set up
 
-You'll need Node.js >= 22.
+You'll need Node.js >= 20.
 Then install the dependencies:
 
 ```sh
@@ -54,8 +54,7 @@ Releasing is one manual step.
 From the Actions tab, run the `release` workflow (`workflow_dispatch`) and give it a `version` input — either a bump keyword (`patch` / `minor` / `major` / `prerelease`) or an explicit version like `0.1.0`.
 The workflow runs the checks and build, bumps `package.json`, publishes to npm with provenance via **trusted publishing** (OIDC — no `NPM_TOKEN` needed), pushes the version commit and tag, and creates a GitHub Release with generated notes.
 
-Trusted publishing must be configured once on npmjs.com:
-package **Settings → Publishing access → Trusted publishers → GitHub**, pointing at this repository's `release.yml` workflow.
+Trusted publishing must be configured once on npmjs.com: package **Settings → Publishing access → Trusted publishers → GitHub**, pointing at this repository's `release.yml` workflow.
 
 ## License
 

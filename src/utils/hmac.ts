@@ -1,9 +1,7 @@
 /**
  * Synchronous HMAC-SHA256, for signed cookies.
  *
- * `res.cookie({ signed: true })` is synchronous, but WebCrypto only offers an async
- * digest, so the edge has nothing to call. This is a plain implementation that produces
- * the same values as `cookie-signature` on every runtime.
+ * `res.cookie({ signed: true })` is synchronous, but WebCrypto only offers an async digest, so the edge has nothing to call. This is a plain implementation that produces the same values as `cookie-signature` on every runtime.
  */
 
 const K = new Uint32Array([
@@ -134,8 +132,7 @@ function toBase64(bytes: Uint8Array): string {
 }
 
 /**
- * Signs a value the way `cookie-signature` does: the value, a dot, then the base64 MAC
- * with trailing padding removed.
+ * Signs a value the way `cookie-signature` does: the value, a dot, then the base64 MAC with trailing padding removed.
  */
 export function sign(value: string, secret: string): string {
   return `${value}.${toBase64(hmacSha256(secret, value)).replace(/=+$/, '')}`

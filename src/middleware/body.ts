@@ -1,9 +1,7 @@
 /**
  * Built-in body parsers.
  *
- * Written from scratch rather than wrapping body-parser: it assumes Node streams, and
- * reading the Fetch Request directly is cheaper. Using the real body-parser still works,
- * since `req` keeps its Node stream surface.
+ * Written from scratch rather than wrapping body-parser: it assumes Node streams, and reading the Fetch Request directly is cheaper. Using the real body-parser still works, since `req` keeps its Node stream surface.
  */
 
 import { kState } from '../object-model.js'
@@ -71,8 +69,7 @@ function typeMatches(req: ExpRequest, expected: TypeOption): boolean {
 /**
  * Whether the request carries no body at all.
  *
- * The headers alone are not enough: a Request built in-process and handed straight to
- * `app.fetch()` has a body stream but no content-length.
+ * The headers alone are not enough: a Request built in-process and handed straight to `app.fetch()` has a body stream but no content-length.
  */
 function hasNoBody(req: ExpRequest): boolean {
   if (req[kState].ctx.req.raw.body !== null) return false
@@ -284,8 +281,7 @@ export function urlencoded(options: BodyOptions = {}): RequestHandler {
 /**
  * Parses application/x-www-form-urlencoded.
  *
- * `extended: false` behaves like querystring.parse (repeated keys become arrays);
- * `extended: true` also understands `a[b]=1`. Both reject prototype-polluting keys.
+ * `extended: false` behaves like querystring.parse (repeated keys become arrays); `extended: true` also understands `a[b]=1`. Both reject prototype-polluting keys.
  */
 export function parseUrlencoded(input: string, extended: boolean): Record<string, unknown> {
   const out: Record<string, unknown> = Object.create(null)

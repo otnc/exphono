@@ -1,6 +1,5 @@
 /**
- * Routing semantics that are easy to get subtly wrong: parameter scoping across router
- * boundaries, named captures, wildcards, and handler validation.
+ * Routing semantics that are easy to get subtly wrong: parameter scoping across router boundaries, named captures, wildcards, and handler validation.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -61,10 +60,7 @@ describe('req.params scoping', () => {
 
 describe('path matching', () => {
   it('a mount path with a trailing slash still matches deeper paths', async () => {
-    // Non-strict mounts strip a trailing slash before compiling, then accept it back
-    // optionally — '/foo/bob/' has to keep matching '/foo/bob/bar', not just '/foo/bob/'.
-    // (Without mergeParams, the sub-router does not see :user — verified against real
-    // Express, which returns {} here too.)
+    // Non-strict mounts strip a trailing slash before compiling, then accept it back optionally — '/foo/bob/' has to keep matching '/foo/bob/bar', not just '/foo/bob/'. (Without mergeParams, the sub-router does not see :user — verified against real Express, which returns {} here too.)
     const app = express()
     const router = express.Router()
     router.get('/bar', (req, res) => res.json(req.params))

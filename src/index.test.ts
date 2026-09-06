@@ -16,12 +16,12 @@ describe('hello world', () => {
   it('responds to a simple GET', async () => {
     const app = express()
     app.get('/', (_req, res) => {
-      res.send('Hello, exphono!')
+      res.send('Hello, ExpHono!')
     })
 
     const res = await call(app, '/')
     expect(res.status).toBe(200)
-    expect(await res.text()).toBe('Hello, exphono!')
+    expect(await res.text()).toBe('Hello, ExpHono!')
     expect(res.headers.get('content-type')).toBe('text/html; charset=utf-8')
   })
 

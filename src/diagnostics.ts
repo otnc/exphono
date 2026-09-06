@@ -1,8 +1,7 @@
 /**
  * Diagnostics and strict mode.
  *
- * Anything exphono degrades is surfaced with a stable code rather than silently ignored.
- * By default each code warns once and execution continues; strict mode throws instead.
+ * Anything ExpHono degrades is surfaced with a stable code rather than silently ignored. By default each code warns once and execution continues; strict mode throws instead.
  */
 
 /** Stable diagnostic codes, also used as documentation anchors. */
@@ -52,12 +51,12 @@ export const DIAGNOSTICS = {
   EXPHONO_E009: {
     title: 'Depending on an Express internal',
     detail:
-      "exphono keeps the name, but its internal structure differs, so behaviour isn't guaranteed.",
+      "ExpHono keeps the name, but its internal structure differs, so behaviour isn't guaranteed.",
     fix: 'Prefer the public API.',
   },
   EXPHONO_E010: {
     title: 'Deep import of express internals cannot be resolved',
-    detail: "exphono does not expose 'express/lib/*'.",
+    detail: "ExpHono does not expose 'express/lib/*'.",
     fix: 'Use the public API surface.',
   },
   EXPHONO_E011: {
@@ -76,22 +75,22 @@ export type DiagnosticCode = keyof typeof DIAGNOSTICS
 
 const DOCS_BASE = 'https://github.com/otnc/exphono/blob/main/docs/errors.md'
 
-/** Base class for errors exphono throws. */
-export class ExphonoError extends Error {
+/** Base class for errors ExpHono throws. */
+export class ExpHonoError extends Error {
   readonly code: DiagnosticCode
 
   constructor(code: DiagnosticCode, context?: string) {
     super(formatMessage(code, context))
-    this.name = 'ExphonoError'
+    this.name = 'ExpHonoError'
     this.code = code
   }
 }
 
 /** Thrown when strict mode reaches an unsupported or degraded API. */
-export class ExphonoUnsupportedError extends ExphonoError {
+export class ExpHonoUnsupportedError extends ExpHonoError {
   constructor(code: DiagnosticCode, context?: string) {
     super(code, context)
-    this.name = 'ExphonoUnsupportedError'
+    this.name = 'ExpHonoUnsupportedError'
   }
 }
 
@@ -148,12 +147,11 @@ export interface ReportOptions {
 }
 
 /**
- * Reports a degradation: throws under strict mode, otherwise warns once per code.
- * On the edge the dedupe state resets per isolate, so it is effectively once per start.
+ * Reports a degradation: throws under strict mode, otherwise warns once per code. On the edge the dedupe state resets per isolate, so it is effectively once per start.
  */
 export function report(code: DiagnosticCode, options: ReportOptions = {}): void {
   const strict = options.strict ?? globalStrict
-  if (strict) throw new ExphonoUnsupportedError(code, options.context)
+  if (strict) throw new ExpHonoUnsupportedError(code, options.context)
 
   const key = options.context ? `${code}:${options.context}` : code
   if (warned.has(key)) return
@@ -163,5 +161,5 @@ export function report(code: DiagnosticCode, options: ReportOptions = {}): void 
 
 /** Always throws. */
 export function fail(code: DiagnosticCode, context?: string): never {
-  throw new ExphonoUnsupportedError(code, context)
+  throw new ExpHonoUnsupportedError(code, context)
 }

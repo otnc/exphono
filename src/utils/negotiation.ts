@@ -1,8 +1,7 @@
 /**
  * Content negotiation and conditional requests.
  *
- * Reimplemented instead of pulling in accepts / negotiator / type-is / fresh /
- * range-parser, which are Node-bound and large.
+ * Reimplemented instead of pulling in accepts / negotiator / type-is / fresh / range-parser, which are Node-bound and large.
  */
 
 interface Spec {

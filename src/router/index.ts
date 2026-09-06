@@ -1,12 +1,9 @@
 /**
  * Express's layer stack.
  *
- * Rather than dispatching to one matched handler, layers are walked in order and driven
- * by `next()`. Mount rewrites of `req.url`, `next('route')`, `next('router')` and the
- * error-only walk are all reproduced.
+ * Rather than dispatching to one matched handler, layers are walked in order and driven by `next()`. Mount rewrites of `req.url`, `next('route')`, `next('router')` and the error-only walk are all reproduced.
  *
- * Internal names such as `handle_request` and `_options` are kept, since some code
- * calls them directly.
+ * Internal names such as `handle_request` and `_options` are kept, since some code calls them directly.
  */
 
 import { type CompatMode, HTTP_METHODS, type HttpMethod } from '../inventory.js'
@@ -139,8 +136,7 @@ export class Route {
   }
 
   /**
-   * Express 4 names these `_handles_method` / `_options`; the router package used by
-   * Express 5 names them `_handlesMethod` / `_methods`. Both are provided.
+   * Express 4 names these `_handles_method` / `_options`; the router package used by Express 5 names them `_handlesMethod` / `_methods`. Both are provided.
    */
   _handles_method(method: string): boolean {
     if (this.methods._all) return true
@@ -489,9 +485,7 @@ function processParams(
 /**
  * Splits `use(...)` arguments into a path and handlers.
  *
- * Express decides whether the first argument is a path by peeling arrays until it finds
- * a non-array: if that is not a function, the argument was a path. Handlers are then
- * flattened to any depth.
+ * Express decides whether the first argument is a path by peeling arrays until it finds a non-array: if that is not a function, the argument was a path. Handlers are then flattened to any depth.
  */
 export function splitPathAndHandlers(args: unknown[]): { path: PathSpec; handlers: unknown[] } {
   let path: PathSpec = '/'
@@ -513,8 +507,7 @@ export function splitPathAndHandlers(args: unknown[]): { path: PathSpec; handler
 /**
  * Merges a layer's params over the parent router's, as the router package does.
  *
- * Numeric keys come from unnamed regexp captures and have to keep their order across the
- * boundary, so the child's indices are shifted past the parent's rather than overwriting.
+ * Numeric keys come from unnamed regexp captures and have to keep their order across the boundary, so the child's indices are shifted past the parent's rather than overwriting.
  */
 function mergeParams(
   params: Record<string, string>,

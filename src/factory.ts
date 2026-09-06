@@ -1,11 +1,10 @@
 /**
  * Builds the `express` callable and hangs the module exports off it, the way Express does.
  *
- * The compat mode is read through a callback so the `exphono/v4` and `exphono/v5`
- * subpaths can each pin their own without sharing mutable state with the main entry.
+ * The compat mode is read through a callback so the `exphono/v4` and `exphono/v5` subpaths can each pin their own without sharing mutable state with the main entry.
  */
 
-import { type Application, createApplication, type ExphonoOptions } from './application.js'
+import { type Application, createApplication, type ExpHonoOptions } from './application.js'
 import { report } from './diagnostics.js'
 import type { CompatMode } from './inventory.js'
 import { json, raw, text, urlencoded } from './middleware/body.js'
@@ -32,8 +31,8 @@ export interface ExpressFactory {
   static: typeof serveStatic
   query: (options?: unknown) => never
 
-  // exphono additions
-  configure: (options: ExphonoOptions) => void
+  // ExpHono additions
+  configure: (options: ExpHonoOptions) => void
   honoMiddleware: typeof honoMiddleware
   detectRuntime: typeof detectRuntime
 }
@@ -52,8 +51,7 @@ export function honoMiddleware<T extends (...args: never[]) => unknown>(fn: T): 
 }
 
 /**
- * Connect-era middleware placeholders from Express 4. They exist only to throw a
- * message pointing at the separate package, and are reproduced with the same wording.
+ * Connect-era middleware placeholders from Express 4. They exist only to throw a message pointing at the separate package, and are reproduced with the same wording.
  */
 const CONNECT_MIDDLEWARE = [
   'bodyParser',
@@ -84,7 +82,7 @@ export function buildFactory({ getCompat, setCompat }: FactoryOptions): ExpressF
   const express = (): Application => createApplication(getCompat())
   const factory = express as unknown as ExpressFactory
 
-  const configure = (options: ExphonoOptions): void => {
+  const configure = (options: ExpHonoOptions): void => {
     if (options.compat) setCompat?.(options.compat)
   }
 

@@ -1,8 +1,7 @@
 /**
  * The `exphono/v4` and `exphono/v5` subpaths.
  *
- * Each pins its own Express major. They must not share mutable state, so importing both
- * in one program keeps them independent.
+ * Each pins its own Express major. They must not share mutable state, so importing both in one program keeps them independent.
  */
 
 import { existsSync } from 'node:fs'

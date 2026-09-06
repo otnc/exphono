@@ -1,6 +1,5 @@
 /**
- * Path matching. Express 4 and 5 use different path-to-regexp generations, and this
- * module is the only place that knows the difference.
+ * Path matching. Express 4 and 5 use different path-to-regexp generations, and this module is the only place that knows the difference.
  *
  *   compat=4 : ':id'  ':id?'  '*'  '/files/*'  inline regular expressions
  *   compat=5 : ':id'  '{/:id}'  '*splat'  (wildcards must be named)
@@ -42,8 +41,7 @@ interface Compiled {
 /**
  * Compiles one path.
  *
- * `use('/')` is Express's fast_slash case: it always matches and strips nothing.
- * Without it, `app.use(fn)` never runs.
+ * `use('/')` is Express's fast_slash case: it always matches and strips nothing. Without it, `app.use(fn)` never runs.
  */
 function compileOne(path: string | RegExp, opts: MatcherOptions): Compiled | 'fast-slash' {
   if (!opts.end && typeof path === 'string' && (path === '/' || path === '')) {
@@ -51,13 +49,11 @@ function compileOne(path: string | RegExp, opts: MatcherOptions): Compiled | 'fa
   }
   if (path instanceof RegExp) {
     if (opts.compat === '5') {
-      // Express 5 rejects inline regular expressions; exphono accepts them anyway
+      // Express 5 rejects inline regular expressions; ExpHono accepts them anyway
     }
     return { regexp: path, keys: [] }
   }
-  // Under strict:false the router package strips a trailing slash before compiling
-  // (its `loosen`), then relies on the appended '/?' to accept it back optionally.
-  // Without this, '/foo/bob/' would demand the literal slash AND another one after it.
+  // Under strict:false the router package strips a trailing slash before compiling (its `loosen`), then relies on the appended '/?' to accept it back optionally. Without this, '/foo/bob/' would demand the literal slash AND another one after it.
   const loosened = opts.strict || path === '/' ? path : path.replace(/\/+$/, '')
   return compileString(loosened, opts)
 }

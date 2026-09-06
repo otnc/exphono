@@ -1,6 +1,5 @@
 /**
- * Edge replacement for `files.ts`, aliased in at build time. Workers have no filesystem;
- * static assets come from a binding instead.
+ * Edge replacement for `files.ts`, aliased in at build time. Workers have no filesystem; static assets come from a binding instead.
  */
 
 import { fail } from '../diagnostics.js'

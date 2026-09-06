@@ -1,9 +1,7 @@
 /**
  * `app.listen()` for Node, Bun and Deno.
  *
- * The edge build aliases this module to `serve.edge.ts`. Bundlers follow dynamic imports,
- * so leaving the `@hono/node-server` reference in would drag `node:http` into a Workers
- * bundle — runtime detection alone is not enough.
+ * The edge build aliases this module to `serve.edge.ts`. Bundlers follow dynamic imports, so leaving the `@hono/node-server` reference in would drag `node:http` into a Workers bundle — runtime detection alone is not enough.
  */
 
 import { report } from '../diagnostics.js'
@@ -91,8 +89,7 @@ function serveNode(
 /**
  * Runs a request that arrived through a Node HTTP server rather than a Fetch handler.
  *
- * `http.createServer(app)` and supertest hand Express real IncomingMessage / ServerResponse
- * objects, so they have to be converted into a Fetch Request and back again.
+ * `http.createServer(app)` and supertest hand Express real IncomingMessage / ServerResponse objects, so they have to be converted into a Fetch Request and back again.
  */
 export async function handleNodeRequest(
   app: ServeTarget,
