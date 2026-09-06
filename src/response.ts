@@ -10,7 +10,7 @@
  */
 
 import type { Context } from 'hono'
-import { ExphonoError, report } from './diagnostics.js'
+import { report } from './diagnostics.js'
 import type { CompatMode } from './inventory.js'
 import { type SendOptions, sendFile } from './middleware/send.js'
 import { kState } from './object-model.js'
@@ -455,14 +455,33 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
     return this.sendFile(path, options, callback)
   },
 
-  /** Not implemented yet. */
-  render(this: ExpResponse, _view: string, _options?: unknown, callback?: (e?: unknown) => void) {
-    const err = new ExphonoError('EXPHONO_E002', 'res.render')
-    if (callback) {
-      callback(err)
-      return this
+  render(
+    this: ExpResponse,
+    view: string,
+    options?: unknown,
+    callback?: (e?: unknown, html?: string) => void,
+  ) {
+    const req = this.req
+    const app = req?.app as
+      | { render: (v: string, o: unknown, cb: (e?: unknown, h?: string) => void) => void }
+      | undefined
+    const isCb = typeof options === 'function'
+    let done = (isCb ? options : callback) as ((e?: unknown, html?: string) => void) | undefined
+    const opts = (isCb ? {} : (options ?? {})) as Record<string, unknown>
+
+    // res.locals loses to any locals passed at the call site, per Express
+    opts._locals = this.locals
+
+    done ??= (err, html) => {
+      if (err) {
+        req?.next?.(err)
+        return
+      }
+      this.send(html)
     }
-    throw err
+
+    app?.render(view, opts, done)
+    return this
   },
 
   on(this: ExpResponse, event: string, listener: (...a: unknown[]) => void) {

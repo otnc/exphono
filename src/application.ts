@@ -9,7 +9,7 @@
 
 import type { Context } from 'hono'
 import { Hono } from 'hono'
-import { ExphonoError, report, setGlobalStrict } from './diagnostics.js'
+import { report, setGlobalStrict } from './diagnostics.js'
 import { type CompatMode, HTTP_METHODS, type HttpMethod } from './inventory.js'
 import { finalHandler } from './middleware/final-handler.js'
 import { createAppProto, kState } from './object-model.js'
@@ -29,6 +29,8 @@ import {
 import type { PathSpec } from './router/matcher.js'
 import { mixinEmitter } from './runtime/event-emitter.js'
 import { handleNodeRequest, serve } from './runtime/serve.js'
+import type { EngineFn } from './view/index.js'
+import { View } from './view/index.js'
 
 export interface ExphonoOptions {
   strict?: boolean
@@ -163,6 +165,8 @@ export function createApplication(compatDefault: CompatMode = '5'): Application 
   app.engines = Object.create(null) as Record<string, unknown>
   app.cache = Object.create(null) as Record<string, unknown>
   app.mountpath = '/'
+  settings.view = View
+  settings.views = './views'
 
   // Per-app prototypes
   app.request = createAppProto(requestProto, app)
@@ -305,24 +309,65 @@ export function createApplication(compatDefault: CompatMode = '5'): Application 
     configurable: true,
     enumerable: false,
     value: (ext: string, fn: unknown) => {
+      if (typeof fn !== 'function') throw new Error('callback function required')
       const key = ext.startsWith('.') ? ext : `.${ext}`
       app.engines[key] = fn
       return app
     },
   })
 
+  const viewCache = new Map<string, View>()
+
   Object.defineProperty(app, 'render', {
     writable: true,
     configurable: true,
     enumerable: false,
-    value: (_view: string, _options?: unknown, callback?: (e?: unknown) => void) => {
-      const err = new ExphonoError('EXPHONO_E002', 'app.render')
-      const cb = typeof _options === 'function' ? (_options as (e?: unknown) => void) : callback
-      if (cb) {
-        cb(err)
+    value: (name: string, options?: unknown, callback?: (e?: unknown, html?: string) => void) => {
+      const isCb = typeof options === 'function'
+      const done = (isCb ? options : callback) as (e?: unknown, html?: string) => void
+      const opts = (isCb ? {} : (options ?? {})) as Record<string, unknown> & {
+        _locals?: Record<string, unknown>
+        cache?: boolean
+      }
+
+      // Merge order matters: app.locals, then res.locals (passed as _locals), then the
+      // call-site options, so res.render()'s own options win over everything.
+      const renderOptions: Record<string, unknown> & { cache?: boolean } = {
+        ...app.locals,
+        ...opts._locals,
+        ...opts,
+      }
+      if (renderOptions.cache == null) renderOptions.cache = app.enabled('view cache')
+
+      const cached = renderOptions.cache ? viewCache.get(name) : undefined
+
+      const finish = (view: View | undefined) => {
+        if (!view?.path) {
+          const roots = ([] as string[]).concat((app.get('views') as string | string[]) ?? [])
+          const dirs =
+            roots.length > 1
+              ? `directories "${roots.slice(0, -1).join('", "')}" or "${roots[roots.length - 1]}"`
+              : `directory "${roots[0]}"`
+          done(new Error(`Failed to lookup view "${name}" in views ${dirs}`))
+          return
+        }
+        if (renderOptions.cache) viewCache.set(name, view)
+        view.render(renderOptions, done)
+      }
+
+      if (cached) {
+        finish(cached)
         return
       }
-      throw err
+
+      const ViewCtor = app.get('view') as typeof View
+      ViewCtor.create(name, {
+        defaultEngine: app.get('view engine') as string | undefined,
+        root: app.get('views') as string | string[] | undefined,
+        engines: app.engines as Record<string, EngineFn>,
+      })
+        .then(finish)
+        .catch(done)
     },
   })
 
