@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thank you for submitting an idea. It helps make exphono better.
+        Thank you for submitting an idea. It helps make ExpHono better.
   - type: textarea
     attributes:
       label: What is the feature you are proposing?

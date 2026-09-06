@@ -1,8 +1,7 @@
 /**
  * Signed cookies, end to end with the real cookie-parser.
  *
- * The signature has to match `cookie-signature` byte for byte, otherwise cookies written
- * by exphono cannot be read back by an Express app and vice versa.
+ * The signature has to match `cookie-signature` byte for byte, otherwise cookies written by exphono cannot be read back by an Express app and vice versa.
  */
 
 import { createRequire } from 'node:module'

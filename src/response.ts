@@ -237,8 +237,7 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
   /**
    * Commits the headers.
    *
-   * on-headers hooks by replacing this method, so exphono must call it internally the
-   * moment headers are committed — otherwise morgan and compression silently misbehave.
+   * on-headers hooks by replacing this method, so ExpHono must call it internally the moment headers are committed — otherwise morgan and compression silently misbehave.
    */
   writeHead(this: ExpResponse, status?: number, reason?: string | object, headers?: object) {
     const s = st(this)

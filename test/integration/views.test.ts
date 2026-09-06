@@ -1,8 +1,7 @@
 /**
  * Template rendering, end to end with a real engine (ejs).
  *
- * Exercises the parts of `View` that are easy to get wrong: locals precedence, view
- * caching, and the lookup order across multiple roots.
+ * Exercises the parts of `View` that are easy to get wrong: locals precedence, view caching, and the lookup order across multiple roots.
  */
 
 import { resolve } from 'node:path'

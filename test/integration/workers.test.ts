@@ -1,8 +1,7 @@
 /**
  * Runs the edge build on a real workerd via miniflare.
  *
- * Bundled first, as a real deployment would be: the edge build keeps `hono` external
- * because it is a peer dependency, so wrangler (or here, rolldown) has to inline it.
+ * Bundled first, as a real deployment would be: the edge build keeps `hono` external because it is a peer dependency, so wrangler (or here, rolldown) has to inline it.
  */
 
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
@@ -154,8 +153,7 @@ describe.skipIf(!ready)('Cloudflare Workers (workerd)', () => {
   })
 
   it('rejects `export default app` — workerd treats a function as an actor class', async () => {
-    // `app` is a function for Express compatibility, and workerd reads a function
-    // default export as a Durable Object class, ignoring `.fetch` — hence `app.worker`.
+    // `app` is a function for Express compatibility, and workerd reads a function default export as a Durable Object class, ignoring `.fetch` — hence `app.worker`.
     const mf = await startWorker(
       'bad',
       `const app = express()

@@ -1,11 +1,7 @@
 /**
- * Compares the real express objects against exphono's at runtime to catch any API
- * Express has and exphono does not.
+ * Compares the real express objects against exphono's at runtime to catch any API Express has and exphono does not.
  *
- * Only the members Express itself defines are required. The rest of
- * `http.IncomingMessage.prototype` behind `express.request` is out of scope: exphono
- * implements a declared subset of the Node surface rather than reimplementing streams.
- * That subset is asserted separately below.
+ * Only the members Express itself defines are required. The rest of `http.IncomingMessage.prototype` behind `express.request` is out of scope: exphono implements a declared subset of the Node surface rather than reimplementing streams. That subset is asserted separately below.
  */
 
 import { createRequire } from 'node:module'

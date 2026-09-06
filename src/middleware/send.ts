@@ -1,8 +1,7 @@
 /**
  * File serving shared by `res.sendFile`, `res.download` and `express.static`.
  *
- * Reimplemented rather than reusing the `send` package, which is built around Node's
- * http module.
+ * Reimplemented rather than reusing the `send` package, which is built around Node's http module.
  */
 
 import type { ExpRequest } from '../request.js'

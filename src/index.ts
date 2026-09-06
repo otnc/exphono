@@ -1,12 +1,10 @@
 /**
- * exphono — run Express code on Hono.
+ * ExpHono — run Express code on Hono.
  *
- * The export shape follows Express: the default export is the `express` function itself,
- * helpers like `Router` and `json` are both properties of it and named exports, and the
- * CJS build sets `module.exports` to the function.
+ * The export shape follows Express: the default export is the `express` function itself, helpers like `Router` and `json` are both properties of it and named exports, and the CJS build sets `module.exports` to the function.
  */
 
-import type { ExphonoOptions } from './application.js'
+import type { ExpHonoOptions } from './application.js'
 import { buildFactory, query } from './factory.js'
 import type { CompatMode } from './inventory.js'
 import { json, raw, text, urlencoded } from './middleware/body.js'
@@ -15,8 +13,8 @@ import { requestProto } from './request.js'
 import { responseProto } from './response.js'
 import { createRouter, Route as RouteClass, type RouterInstance } from './router/index.js'
 
-export type { Application, ExphonoOptions } from './application.js'
-export { ExphonoError, ExphonoUnsupportedError } from './diagnostics.js'
+export type { Application, ExpHonoOptions } from './application.js'
+export { ExpHonoError, ExpHonoUnsupportedError } from './diagnostics.js'
 export { EXPHONO_HONO_MW, honoMiddleware } from './factory.js'
 export type { CompatMode, CoverageClass } from './inventory.js'
 export type { ExpRequest as Request } from './request.js'
@@ -34,8 +32,7 @@ export { detectRuntime } from './runtime/detect.js'
 /**
  * Express major reproduced by default.
  *
- * Import `exphono/v4` or `exphono/v5` to pin it instead; those entries carry their own
- * setting rather than sharing this one.
+ * Import `exphono/v4` or `exphono/v5` to pin it instead; those entries carry their own setting rather than sharing this one.
  */
 let defaultCompat: CompatMode = '5'
 
@@ -43,7 +40,7 @@ export function setDefaultCompat(compat: CompatMode): void {
   defaultCompat = compat
 }
 
-export function configure(options: ExphonoOptions): void {
+export function configure(options: ExpHonoOptions): void {
   if (options.compat) defaultCompat = options.compat
 }
 

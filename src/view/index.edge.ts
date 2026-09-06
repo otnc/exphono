@@ -1,10 +1,7 @@
 /**
  * Edge replacement for `view/index.ts`, aliased in at build time.
  *
- * There is no filesystem to search and no `require()`/dynamic `import()` of an arbitrary
- * engine module, so `res.render` needs templates registered up front instead — see
- * `configure({ views: { 'index.ejs': compiledFn } })` in the docs. Until that lands, view
- * rendering reports EXPHONO_E002.
+ * There is no filesystem to search and no `require()`/dynamic `import()` of an arbitrary engine module, so `res.render` needs templates registered up front instead — see `configure({ views: { 'index.ejs': compiledFn } })` in the docs. Until that lands, view rendering reports EXPHONO_E002.
  */
 
 import { fail } from '../diagnostics.js'

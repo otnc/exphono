@@ -1,12 +1,9 @@
 /**
  * View lookup and rendering for Node and Bun.
  *
- * Ported closely from Express's own `lib/view.js`: resolves `<path>.<ext>` then
- * `<path>/index.<ext>` across each root in turn, and loads the engine's `.__express`
- * export when one is not registered via `app.engine()`.
+ * Ported closely from Express's own `lib/view.js`: resolves `<path>.<ext>` then `<path>/index.<ext>` across each root in turn, and loads the engine's `.__express` export when one is not registered via `app.engine()`.
  *
- * Aliased to `view.edge.ts` on the edge, where there is no filesystem to search and
- * `require()` cannot load an engine module.
+ * Aliased to `view.edge.ts` on the edge, where there is no filesystem to search and `require()` cannot load an engine module.
  */
 
 import { isAbsolutePath, joinPath, resolvePath, statFile } from '../runtime/files.js'

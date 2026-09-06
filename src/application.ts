@@ -1,10 +1,7 @@
 /**
  * The function object `express()` returns.
  *
- * `app` has to be a function for `app.use('/sub', subApp)` and `http.createServer(app)`
- * to work. As a consequence `export default app` cannot be used on Workers: workerd
- * reads a function default export as a Durable Object class and never looks at `.fetch`.
- * Deploy with `app.worker` instead.
+ * `app` has to be a function for `app.use('/sub', subApp)` and `http.createServer(app)` to work. As a consequence `export default app` cannot be used on Workers: workerd reads a function default export as a Durable Object class and never looks at `.fetch`. Deploy with `app.worker` instead.
  */
 
 import type { Context } from 'hono'
@@ -32,7 +29,7 @@ import { handleNodeRequest, serve } from './runtime/serve.js'
 import type { EngineFn } from './view/index.js'
 import { View } from './view/index.js'
 
-export interface ExphonoOptions {
+export interface ExpHonoOptions {
   strict?: boolean
   compat?: CompatMode
 }
@@ -41,8 +38,7 @@ export interface ExphonoOptions {
 export type Mountable = RequestHandler | ErrorRequestHandler | Application | RouterInstance
 
 /**
- * Route registration per HTTP verb. `get` is declared separately: it is overloaded
- * with reading a setting.
+ * Route registration per HTTP verb. `get` is declared separately: it is overloaded with reading a setting.
  */
 export type VerbMethods = {
   [K in Exclude<HttpMethod, 'get'>]: (path: PathSpec, ...handlers: RequestHandler[]) => Application
@@ -95,8 +91,7 @@ export interface Application extends VerbMethods, ApplicationEvents {
   disable(key: string): Application
   enabled(key: string): boolean
   disabled(key: string): boolean
-  // Concrete shapes first so arrow parameters get inferred: three arguments match
-  // RequestHandler, four fall through to ErrorRequestHandler.
+  // Concrete shapes first so arrow parameters get inferred: three arguments match RequestHandler, four fall through to ErrorRequestHandler.
   use(handler: RequestHandler): Application
   use(handler: ErrorRequestHandler): Application
   use(path: PathSpec, handler: RequestHandler): Application
@@ -117,12 +112,12 @@ export interface Application extends VerbMethods, ApplicationEvents {
   render(view: string, options?: unknown, callback?: (err?: unknown, html?: string) => void): void
   listen(...args: unknown[]): unknown
 
-  // exphono additions
+  // ExpHono additions
   readonly hono: Hono
   fetch(request: Request, env?: unknown, ctx?: unknown): Promise<Response>
   /** The supported edge entry point: `export default app.worker`. */
   readonly worker: { fetch: (request: Request, env?: unknown, ctx?: unknown) => Promise<Response> }
-  configure(options: ExphonoOptions): Application
+  configure(options: ExpHonoOptions): Application
 }
 
 const DEFAULT_SETTINGS_V4: Record<string, unknown> = {
@@ -217,7 +212,7 @@ export function createApplication(compatDefault: CompatMode = '5'): Application 
   app.enabled = (key: string) => Boolean(settings[key])
   app.disabled = (key: string) => !settings[key]
 
-  app.configure = (options: ExphonoOptions) => {
+  app.configure = (options: ExpHonoOptions) => {
     if (options.strict !== undefined) {
       strict = options.strict
       setGlobalStrict(options.strict)
@@ -330,8 +325,7 @@ export function createApplication(compatDefault: CompatMode = '5'): Application 
         cache?: boolean
       }
 
-      // Merge order matters: app.locals, then res.locals (passed as _locals), then the
-      // call-site options, so res.render()'s own options win over everything.
+      // Merge order matters: app.locals, then res.locals (passed as _locals), then the call-site options, so res.render()'s own options win over everything.
       const renderOptions: Record<string, unknown> & { cache?: boolean } = {
         ...app.locals,
         ...opts._locals,
@@ -398,7 +392,7 @@ export function createApplication(compatDefault: CompatMode = '5'): Application 
       res.req = req
       req.next = undefined
 
-      if (settings['x-powered-by']) res.setHeader('x-powered-by', 'Exphono')
+      if (settings['x-powered-by']) res.setHeader('x-powered-by', 'ExpHono')
 
       c.req.raw.signal?.addEventListener('abort', () => abortResponse(res), { once: true })
 
@@ -440,7 +434,7 @@ function readEnv(): string {
   }
 }
 
-/** True when these came from a Node HTTP server rather than from exphono. */
+/** True when these came from a Node HTTP server rather than from ExpHono. */
 function isNodeReqRes(req: unknown, res: unknown): boolean {
   if (typeof req !== 'object' || req === null) return false
   if (kState in (req as Record<symbol, unknown>)) return false

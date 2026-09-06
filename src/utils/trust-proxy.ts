@@ -1,8 +1,7 @@
 /**
  * `trust proxy` evaluation, matching the `proxy-addr` package.
  *
- * The setting decides which `X-Forwarded-*` hops to believe. It accepts a boolean, a hop
- * count, one or more addresses / CIDR ranges / subnet names, or a predicate.
+ * The setting decides which `X-Forwarded-*` hops to believe. It accepts a boolean, a hop count, one or more addresses / CIDR ranges / subnet names, or a predicate.
  */
 
 export type TrustSetting =
@@ -105,8 +104,7 @@ function inRange(addr: string, range: Range): boolean {
 }
 
 /**
- * Walks the forwarded chain from this server outwards and returns the first address that
- * is not itself trusted — the client, as far as the proxies can be believed.
+ * Walks the forwarded chain from this server outwards and returns the first address that is not itself trusted — the client, as far as the proxies can be believed.
  */
 export function resolveAddress(
   socketAddr: string | undefined,

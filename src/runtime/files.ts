@@ -1,8 +1,7 @@
 /**
  * Filesystem access for `express.static`, `res.sendFile` and `res.download`.
  *
- * Aliased to `files.edge.ts` in the edge build so `node:fs` never reaches a Workers
- * bundle. Bundlers follow dynamic imports, so this has to be a build-time split.
+ * Aliased to `files.edge.ts` in the edge build so `node:fs` never reaches a Workers bundle. Bundlers follow dynamic imports, so this has to be a build-time split.
  */
 
 export interface FileStat {
