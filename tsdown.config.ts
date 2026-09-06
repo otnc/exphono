@@ -12,6 +12,7 @@ const src = (p: string) => fileURLToPath(new URL(`./src/${p}`, import.meta.url))
 const edgeAlias = {
   [src('runtime/serve.js')]: src('runtime/serve.edge.ts'),
   [src('runtime/files.js')]: src('runtime/files.edge.ts'),
+  [src('view/index.js')]: src('view/index.edge.ts'),
 }
 
 /**

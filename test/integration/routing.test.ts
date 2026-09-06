@@ -60,6 +60,21 @@ describe('req.params scoping', () => {
 })
 
 describe('path matching', () => {
+  it('a mount path with a trailing slash still matches deeper paths', async () => {
+    // Non-strict mounts strip a trailing slash before compiling, then accept it back
+    // optionally — '/foo/bob/' has to keep matching '/foo/bob/bar', not just '/foo/bob/'.
+    // (Without mergeParams, the sub-router does not see :user — verified against real
+    // Express, which returns {} here too.)
+    const app = express()
+    const router = express.Router()
+    router.get('/bar', (req, res) => res.json(req.params))
+    app.use('/:user/bob/', router)
+
+    const res = await get(app, '/foo/bob/bar')
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({})
+  })
+
   it('exposes named captures from an inline RegExp', async () => {
     const app = express()
     app.get(/^\/user\/(?<userId>[0-9]+)$/, (req, res) => {
@@ -121,5 +136,16 @@ describe('handler validation', () => {
 
     const res = await get(app, '/')
     expect(res.headers.get('x-mark')).toBe('a, b')
+  })
+
+  it('rejects a non-function handler on Route.all', () => {
+    const app = express()
+    expect(() => app.route('/').all(3 as never)).toThrow(/argument handler must be a function/)
+  })
+
+  it('router.param requires a function', () => {
+    const router = express.Router()
+    expect(() => router.param('id', undefined as never)).toThrow(/argument fn is required/)
+    expect(() => router.param('id', 42 as never)).toThrow(/argument fn must be a function/)
   })
 })

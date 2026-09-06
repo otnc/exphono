@@ -327,6 +327,8 @@ export function createRouter(options: RouterOptions = {}): RouterInstance {
   }
 
   router.param = (name: string, fn: ParamCallback) => {
+    if (fn === undefined) throw new TypeError('argument fn is required')
+    if (typeof fn !== 'function') throw new TypeError('argument fn must be a function')
     const bucket = router.params[name] ?? []
     bucket.push(fn)
     router.params[name] = bucket

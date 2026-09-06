@@ -55,7 +55,11 @@ function compileOne(path: string | RegExp, opts: MatcherOptions): Compiled | 'fa
     }
     return { regexp: path, keys: [] }
   }
-  return compileString(path, opts)
+  // Under strict:false the router package strips a trailing slash before compiling
+  // (its `loosen`), then relies on the appended '/?' to accept it back optionally.
+  // Without this, '/foo/bob/' would demand the literal slash AND another one after it.
+  const loosened = opts.strict || path === '/' ? path : path.replace(/\/+$/, '')
+  return compileString(loosened, opts)
 }
 
 const ESCAPE_RE = /[.+^${}()|[\]\\]/g
