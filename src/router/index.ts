@@ -59,8 +59,18 @@ export class Layer {
     this.isErrorHandler = handle.length === 4
   }
 
+  /** Set when the path matched but a parameter could not be decoded. */
+  malformed?: unknown
+
   match(path: string): boolean {
-    const result = this.matcher.match(path)
+    this.malformed = undefined
+    let result: ReturnType<PathMatcher['match']>
+    try {
+      result = this.matcher.match(path)
+    } catch (err) {
+      this.malformed = err
+      return true
+    }
     if (!result) {
       this.params = {}
       this.matchedPath = ''
@@ -154,10 +164,10 @@ export class Route {
     return this._options()
   }
 
-  all(...handlers: RequestHandler[]): this {
-    for (const h of handlers) {
-      const layer = new Layer('/', h, { isMount: false, matcher: MATCH_ALL })
-      this.stack.push(layer)
+  all(...handlers: unknown[]): this {
+    for (const h of handlers.flat(Number.POSITIVE_INFINITY)) {
+      if (typeof h !== 'function') throw new TypeError('argument handler must be a function')
+      this.stack.push(new Layer('/', h as RequestHandler, { isMount: false, matcher: MATCH_ALL }))
     }
     this.methods._all = true
     return this
@@ -210,11 +220,13 @@ for (const verb of HTTP_METHODS) {
     writable: true,
     configurable: true,
     enumerable: false,
-    value(this: Route, ...handlers: RequestHandler[]) {
-      for (const h of handlers) {
-        const layer = new Layer('/', h, { isMount: false, matcher: MATCH_ALL }) as Layer & {
-          method?: string
-        }
+    value(this: Route, ...handlers: unknown[]) {
+      for (const h of handlers.flat(Number.POSITIVE_INFINITY)) {
+        if (typeof h !== 'function') throw new TypeError('argument handler must be a function')
+        const layer = new Layer('/', h as RequestHandler, {
+          isMount: false,
+          matcher: MATCH_ALL,
+        }) as Layer & { method?: string }
         layer.method = verb
         this.stack.push(layer)
       }
@@ -346,7 +358,9 @@ export function createRouter(options: RouterOptions = {}): RouterInstance {
     const parentUrl = req.baseUrl
     const parentParams = req.params
 
+    // A router must leave req.url, baseUrl and params exactly as it found them
     const restore = (): void => {
+      req.params = parentParams
       if (removed.length === 0) return
       req.baseUrl = parentUrl
       setRequestUrl(req, removed + req.url)
@@ -379,6 +393,10 @@ export function createRouter(options: RouterOptions = {}): RouterInstance {
         next(err)
         return
       }
+      if (layer.malformed) {
+        next(layer.malformed)
+        return
+      }
 
       // Skip routes that do not handle this method
       if (layer.route && !layer.route._handles_method(req.method)) {
@@ -394,9 +412,7 @@ export function createRouter(options: RouterOptions = {}): RouterInstance {
 
       // Express exposes the current next() on the request; res.format and friends use it
       req.next = next
-      req.params = opts.mergeParams
-        ? { ...parentParams, ...layer.params }
-        : { ...parentParams, ...layer.params }
+      req.params = opts.mergeParams ? mergeParams(layer.params, parentParams) : layer.params
 
       const proceed = (): void => {
         if (layer.isMount && layer.matchedPath && layer.matchedPath !== '/') {
@@ -490,4 +506,33 @@ export function splitPathAndHandlers(args: unknown[]): { path: PathSpec; handler
   }
 
   return { path, handlers: args.slice(offset).flat(Number.POSITIVE_INFINITY) }
+}
+
+/**
+ * Merges a layer's params over the parent router's, as the router package does.
+ *
+ * Numeric keys come from unnamed regexp captures and have to keep their order across the
+ * boundary, so the child's indices are shifted past the parent's rather than overwriting.
+ */
+function mergeParams(
+  params: Record<string, string>,
+  parent: Record<string, string> | undefined,
+): Record<string, string> {
+  if (!parent || typeof parent !== 'object') return params
+
+  const out: Record<string, string> = { ...parent }
+  if (!(0 in params) || !(0 in parent)) return Object.assign(out, params)
+
+  let childCount = 0
+  while (childCount in params) childCount++
+  let parentCount = 0
+  while (parentCount in parent) parentCount++
+
+  const shifted: Record<string, string> = { ...params }
+  for (let i = childCount - 1; i >= 0; i--) {
+    shifted[i + parentCount] = params[i] as string
+    if (i < parentCount) delete shifted[i]
+  }
+
+  return Object.assign(out, shifted)
 }

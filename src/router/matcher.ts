@@ -127,13 +127,24 @@ function compileString(path: string, opts: MatcherOptions): Compiled {
   return { regexp: new RegExp(`^${source}${tail}`, flags), keys }
 }
 
+/** Thrown when a path parameter contains a broken percent escape. */
+export class MalformedPathError extends Error {
+  status = 400
+  statusCode = 400
+}
+
 function decodeParam(value: string | undefined): string {
   if (value === undefined) return ''
   try {
     return decodeURIComponent(value)
   } catch {
-    return value
+    // Express answers 400 rather than handing over a half-decoded value
+    throw new MalformedPathError(`Failed to decode param '${value}'`)
   }
+}
+
+function splitSegments(value: string): string[] {
+  return value.split('/').filter(Boolean).map(decodeParam)
 }
 
 class CompiledMatcher implements PathMatcher {
@@ -150,18 +161,30 @@ class CompiledMatcher implements PathMatcher {
 
       const m = c.regexp.exec(path)
       if (!m) continue
-      const params: Record<string, string> = {}
+      const params: Record<string, unknown> = {}
+
       c.keys.forEach((key, idx) => {
         const raw = m[idx + 1]
-        if (raw !== undefined) params[key.name] = decodeParam(raw)
+        if (raw === undefined) return
+        // A named wildcard collects the segments it swallowed
+        params[key.name] = key.wildcard ? splitSegments(raw) : decodeParam(raw)
       })
-      // Regexp routes expose captures by index, as Express does
+
+      // Regexp routes expose unnamed captures by index, as Express does
       if (c.keys.length === 0) {
+        let index = 0
         for (let k = 1; k < m.length; k++) {
-          if (m[k] !== undefined) params[String(k - 1)] = decodeParam(m[k])
+          const named = m.groups && Object.values(m.groups).includes(m[k])
+          if (named) continue
+          if (m[k] !== undefined) params[String(index)] = decodeParam(m[k])
+          index++
+        }
+        for (const [name, value] of Object.entries(m.groups ?? {})) {
+          if (value !== undefined) params[name] = decodeParam(value)
         }
       }
-      return { params, matched: m[0] ?? '' }
+
+      return { params: params as Record<string, string>, matched: m[0] ?? '' }
     }
     return null
   }
