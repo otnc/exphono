@@ -67,7 +67,7 @@ See [docs/errors.md](./docs/errors.md) for what each code means and how to resol
 
 ## Status
 
-ExpHono is verified against the real Express test suite, not just its own tests. As of the last recorded run, it passes 992 of 1116 Express 5 tests (about 89%); the failure count is tracked as a ratchet so it can only improve. See [test/express-suite/](./test/express-suite/) for how the suite is run.
+ExpHono is verified against the real Express test suite, not just its own tests. As of the last recorded run, it passes 996 of 1116 Express 5 tests (about 89%); the failure count is tracked as a ratchet so it can only improve. See [test/express-suite/](./test/express-suite/) for how the suite is run.
 
 Some gaps are structural rather than missing work — anything that needs a real filesystem or a TCP listener (`app.listen()`, `res.sendFile`, on-disk view lookups) has no equivalent on Cloudflare Workers, and ExpHono reports that with a diagnostic code instead of pretending to support it.
 
