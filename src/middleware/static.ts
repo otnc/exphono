@@ -56,16 +56,17 @@ function redirectToTrailingSlash(req: ExpRequest, res: ExpResponse): void {
   res.send(doc)
 }
 
-export function serveStatic(root: string, options: StaticOptions = {}): RequestHandler {
+export function serveStatic(root: string, options?: StaticOptions): RequestHandler {
   if (!root) throw new TypeError('root path required')
   if (typeof root !== 'string') throw new TypeError('root path must be a string')
-  if (options.setHeaders !== undefined && typeof options.setHeaders !== 'function') {
+  const opts = options ?? {}
+  if (opts.setHeaders !== undefined && typeof opts.setHeaders !== 'function') {
     throw new TypeError('option setHeaders must be function')
   }
 
-  const fallthrough = options.fallthrough !== false
-  const redirect = options.redirect !== false
-  const sendOptions: SendOptions = { ...options, root }
+  const fallthrough = opts.fallthrough !== false
+  const redirect = opts.redirect !== false
+  const sendOptions: SendOptions = { ...opts, root }
 
   return (req: ExpRequest, res: ExpResponse, next: NextFunction) => {
     if (req.method !== 'GET' && req.method !== 'HEAD') {

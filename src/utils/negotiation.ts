@@ -63,6 +63,7 @@ function typeMatchesSpec(candidate: string, spec: string): boolean {
   const [sType, sSub] = spec.split('/')
   const [cType, cSub] = candidate.split('/')
   if (sSub === '*') return sType === cType
+  if (sType === '*') return sSub === cSub
   // Suffixed form, e.g. application/*+json
   if (sSub?.startsWith('*+')) return sType === cType && Boolean(cSub?.endsWith(sSub.slice(1)))
   return false
@@ -129,7 +130,11 @@ export function isType(contentType: string | undefined, types: string[]): string
       continue
     }
     const normalized = normalizeType(type) || t
-    if (typeMatchesSpec(actual, normalized)) return type
+    if (typeMatchesSpec(actual, normalized)) {
+      // A wildcard spec (type/* or */subtype) reports the type it actually matched;
+      // an exact spec (an extension like 'json', or a full mime type) echoes itself back.
+      return type.includes('*') ? actual : type
+    }
   }
   return false
 }

@@ -5,6 +5,7 @@
  */
 
 import { report } from '../diagnostics.js'
+import { kActualStatus, kRemoteAddress } from '../object-model.js'
 
 export interface ServeTarget {
   fetch(request: Request, env?: unknown, ctx?: unknown): Promise<Response>
@@ -164,6 +165,12 @@ async function toFetchRequest(req: NodeIncomingMessage): Promise<Request> {
       enumerable: true,
     })
   }
+  if (req.socket?.remoteAddress) {
+    Object.defineProperty(request, kRemoteAddress, {
+      value: req.socket.remoteAddress,
+      configurable: true,
+    })
+  }
   return request
 }
 
@@ -175,7 +182,8 @@ async function writeFetchResponse(response: Response, res: NodeServerResponse): 
   const setCookie = response.headers.getSetCookie?.() ?? []
   if (setCookie.length > 0) headers['set-cookie'] = setCookie
 
-  res.writeHead(response.status, headers)
+  const actualStatus = (response as unknown as Record<symbol, number | undefined>)[kActualStatus]
+  res.writeHead(actualStatus ?? response.status, headers)
 
   if (!response.body) {
     res.end()

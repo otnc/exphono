@@ -8,7 +8,7 @@ import type { Context } from 'hono'
 import { report } from './diagnostics.js'
 import type { CompatMode } from './inventory.js'
 import { parseUrlencoded } from './middleware/body.js'
-import { defineLazyGetter, invalidateLazy, kState } from './object-model.js'
+import { defineLazyGetter, invalidateLazy, kRemoteAddress, kState } from './object-model.js'
 import { accepts, acceptsSimple, isFresh, isType, parseRange } from './utils/negotiation.js'
 import { compileTrust, forwardedChain, resolveAddress } from './utils/trust-proxy.js'
 
@@ -380,8 +380,9 @@ defineLazyGetter(requestProto, 'connection', function (this: ExpRequest) {
  * Stand-in for a Node socket. on-finished, proxy-addr and morgan read it, so the shape is there, but none of the operations do anything.
  */
 function makeFakeSocket(req: ExpRequest): FakeSocket {
+  const raw = req[kState].ctx.req.raw as unknown as Record<symbol, string | undefined>
   const socket: FakeSocket = {
-    remoteAddress: undefined,
+    remoteAddress: raw[kRemoteAddress],
     remotePort: undefined,
     // Read the URL directly: req.protocol consults the socket, which would recurse
     encrypted: req[kState].parsed.protocol === 'https:',

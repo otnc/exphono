@@ -1,7 +1,7 @@
 {
   "express5": {
-    "passing": 1008,
-    "failing": 108,
+    "passing": 1076,
+    "failing": 40,
     "total": 1116,
     "recorded": "2026-09-07"
   }

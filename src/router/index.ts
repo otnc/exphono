@@ -117,7 +117,10 @@ export function setPromiseErrorForwarding(enabled: boolean): void {
 function settle(out: unknown, next: NextFunction): void {
   if (out && typeof (out as Promise<unknown>).then === 'function') {
     ;(out as Promise<unknown>).then(undefined, (err: unknown) => {
-      if (forwardPromiseErrors) next(err)
+      // A falsy rejection (Promise.reject() with no value, say) would otherwise pass
+      // next() a value indistinguishable from "no error", silently skipping every error
+      // handler downstream instead of reaching one.
+      if (forwardPromiseErrors) next(err || new Error('Rejected promise'))
     })
   }
 }
@@ -293,7 +296,10 @@ export function createRouter(options: RouterOptions = {}): RouterInstance {
     compilePath(path, {
       end,
       caseSensitive: opts.caseSensitive,
-      strict: opts.strict,
+      // A mount (used by app.use()) always matches loosely regardless of strict routing —
+      // Express's own router hardcodes strict: false for it, only ever consulting the
+      // setting for a route's own, fully-anchored match.
+      strict: end ? opts.strict : false,
       compat: opts.compat,
     })
 
@@ -361,6 +367,9 @@ export function createRouter(options: RouterOptions = {}): RouterInstance {
     const parentUrl = req.baseUrl
     const parentParams = req.params
     req.originalUrl = req.originalUrl || req.url
+    // Collects every method a route along the way declares but this OPTIONS request
+    // didn't match, so a request nothing else handles can still get a default response.
+    const optionsMethods: string[] | undefined = req.method === 'OPTIONS' ? [] : undefined
 
     // A router must leave req.url, baseUrl and params exactly as it found them
     const restore = (): void => {
@@ -419,7 +428,10 @@ export function createRouter(options: RouterOptions = {}): RouterInstance {
           layerErr = candidate.malformed
           continue
         }
-        if (candidate.route && !candidate.route._handles_method(req.method)) continue
+        if (candidate.route && !candidate.route._handles_method(req.method)) {
+          optionsMethods?.push(...candidate.route._options())
+          continue
+        }
         if (Boolean(layerErr) !== candidate.isErrorHandler) continue
         layer = candidate
         break
@@ -427,6 +439,10 @@ export function createRouter(options: RouterOptions = {}): RouterInstance {
 
       if (!layer) {
         req.params = parentParams
+        if (!layerErr && optionsMethods && optionsMethods.length > 0) {
+          sendOptionsResponse(res, optionsMethods, (err) => done(err))
+          return
+        }
         done(layerErr)
         return
       }
@@ -472,6 +488,25 @@ export function createRouter(options: RouterOptions = {}): RouterInstance {
   }
 
   return router
+}
+
+/**
+ * The default `OPTIONS` reply when nothing else handled the request: an `Allow` header
+ * listing every method a route along the way declared. Errors thrown while writing it
+ * (headers already sent by earlier middleware, say) are reported like any other error
+ * rather than crashing.
+ */
+function sendOptionsResponse(res: ExpResponse, methods: string[], next: NextFunction): void {
+  try {
+    const allow = Array.from(new Set(methods)).sort().join(', ')
+    res.set('allow', allow)
+    res.set('content-length', String(allow.length))
+    res.set('content-type', 'text/plain')
+    res.set('x-content-type-options', 'nosniff')
+    res.end(allow)
+  } catch (err) {
+    next(err)
+  }
 }
 
 /** `undefined` for a missing or blank URL, matching `parseUrl(req).pathname` returning `null`. */

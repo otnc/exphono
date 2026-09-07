@@ -4,6 +4,7 @@
 
 import type { ExpRequest } from '../request.js'
 import type { ExpResponse } from '../response.js'
+import { escapeHtml } from '../utils/html.js'
 
 interface HttpError {
   status?: number
@@ -64,13 +65,4 @@ function normalizeStatus(status: number | undefined): number {
 
 function statusMessage(status: number): string {
   return status === 404 ? 'Not Found' : 'Internal Server Error'
-}
-
-function escapeHtml(value: string): string {
-  return String(value)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
 }

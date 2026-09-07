@@ -357,11 +357,12 @@ function jsonStrictSyntaxError(text: string, firstChar: string | undefined): Bod
   return err
 }
 
-export function json(options: BodyOptions = {}): RequestHandler {
-  const strict = options.strict ?? true
+export function json(options?: BodyOptions): RequestHandler {
+  const opts = options ?? {}
+  const strict = opts.strict ?? true
   return makeParser(
     'application/json',
-    options,
+    opts,
     (bytes, charset) => {
       const text = decode(bytes, charset)
       if (strict) {
@@ -381,19 +382,19 @@ export function json(options: BodyOptions = {}): RequestHandler {
   )
 }
 
-export function text(options: BodyOptions = {}): RequestHandler {
+export function text(options?: BodyOptions): RequestHandler {
   return makeParser(
     'text/plain',
-    options,
+    options ?? {},
     (bytes, charset) => decode(bytes, charset),
     () => '',
   )
 }
 
-export function raw(options: BodyOptions = {}): RequestHandler {
+export function raw(options?: BodyOptions): RequestHandler {
   return makeParser(
     'application/octet-stream',
-    options,
+    options ?? {},
     (bytes) => bytes,
     () => toBuffer(new Uint8Array(0)),
     // Raw bodies are never decoded, so a charset on the request is irrelevant here.
@@ -401,15 +402,16 @@ export function raw(options: BodyOptions = {}): RequestHandler {
   )
 }
 
-export function urlencoded(options: BodyOptions = {}): RequestHandler {
-  const extended = options.extended ?? false
-  const parameterLimit = options.parameterLimit ?? 1000
+export function urlencoded(options?: BodyOptions): RequestHandler {
+  const opts = options ?? {}
+  const extended = opts.extended ?? false
+  const parameterLimit = opts.parameterLimit ?? 1000
   if (typeof parameterLimit !== 'number' || Number.isNaN(parameterLimit) || parameterLimit <= 0) {
     throw new TypeError('option parameterLimit must be a positive number')
   }
   return makeParser(
     'application/x-www-form-urlencoded',
-    options,
+    opts,
     (bytes, charset) => parseUrlencoded(decode(bytes, charset), extended, parameterLimit),
     () => ({}),
     (charset) => charset === 'utf-8' || charset === 'iso-8859-1',
