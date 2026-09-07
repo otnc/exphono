@@ -279,7 +279,10 @@ export async function sendFile(
 
   options.setHeaders?.(res, file, stat)
   if (options.headers) {
-    for (const [key, value] of Object.entries(options.headers)) res.set(key, value)
+    // `res.setHeader`, not `res.set`: Express applies this option with the low-level
+    // Node API, which skips the automatic charset that `res.set('Content-Type', ...)`
+    // would otherwise add.
+    for (const [key, value] of Object.entries(options.headers)) res.setHeader(key, value)
   }
 
   const ifMatch = asString(req.get('if-match'))

@@ -18,6 +18,7 @@ import type { ExpRequest, FakeSocket } from './request.js'
 import { MiniEmitter } from './runtime/event-emitter.js'
 import { resolvePath } from './runtime/files.js'
 import { type CookieOptions, serializeCookie } from './utils/cookie.js'
+import { strongEtag, weakBodyEtag } from './utils/etag.js'
 import { sign } from './utils/hmac.js'
 import { lookupMimeType, withCharset } from './utils/mime.js'
 import { encodeUrl } from './utils/url.js'
@@ -192,7 +193,12 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
     value?: string | string[],
   ) {
     if (typeof field === 'object') {
-      for (const [k, v] of Object.entries(field)) setHeaderValue(this, k, v)
+      for (const [k, v] of Object.entries(field)) this.set(k, v)
+      return this
+    }
+    if (field.toLowerCase() === 'content-type') {
+      if (Array.isArray(value)) throw new TypeError('Content-Type cannot be set to an Array')
+      setHeaderValue(this, field, withCharset(String(value)))
       return this
     }
     setHeaderValue(this, field, value as string | string[])
@@ -268,24 +274,51 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
     const s = st(this)
     assertOpen(this, 'send')
 
+    // Express only populates Content-Length / ETag when a body argument was actually
+    // given — a bare res.send() sends neither, unlike res.send(null)'s empty string.
+    const bodyProvided = body !== undefined
+
     let payload: Uint8Array
-    if (body == null) {
-      payload = new Uint8Array(0)
-    } else if (typeof body === 'string') {
-      // A string body is always utf-8, so a type set earlier gets the charset added
+    if (typeof body === 'string') {
+      // A string body is always written as utf-8, overriding any charset already on the
+      // content-type rather than just filling one in when none is present.
+      if (!s.headers.has('content-type')) this.set('content-type', 'text/html')
       const existing = s.headers.get('content-type')
-      if (existing) setHeaderValue(this, 'content-type', withCharset(existing))
-      else setHeaderValue(this, 'content-type', 'text/html; charset=utf-8')
+      if (existing) setHeaderValue(this, 'content-type', forceUtf8(existing))
       payload = encoder.encode(body)
+    } else if (body == null) {
+      payload = new Uint8Array(0)
     } else if (body instanceof Uint8Array) {
       if (!s.headers.has('content-type')) {
         setHeaderValue(this, 'content-type', 'application/octet-stream')
       }
       payload = body
-    } else if (typeof body === 'object') {
-      return this.json(body)
     } else {
-      payload = encoder.encode(String(body))
+      // Booleans, numbers, plain objects and arrays are all serialized as JSON, matching
+      // Express's own res.send() dispatch.
+      return this.json(body)
+    }
+
+    if (bodyProvided) {
+      if (!s.headers.has('content-length')) {
+        setHeaderValue(this, 'content-length', String(payload.byteLength))
+      }
+      if (!s.headers.has('etag')) {
+        const tag = computeEtag(this.app, payload)
+        if (tag) setHeaderValue(this, 'etag', tag)
+      }
+    }
+    if (this.req?.fresh) this.status(304)
+
+    if (this.statusCode === 204 || this.statusCode === 304) {
+      s.headers.delete('content-type')
+      s.headers.delete('content-length')
+      s.headers.delete('transfer-encoding')
+      payload = new Uint8Array(0)
+    } else if (this.statusCode === 205) {
+      setHeaderValue(this, 'content-length', '0')
+      s.headers.delete('transfer-encoding')
+      payload = new Uint8Array(0)
     }
 
     finish(this, payload)
@@ -588,6 +621,23 @@ Object.defineProperties(responseProto, {
 // ─────────────────────────────────────────────────────────────────────────────
 // Finishing
 // ─────────────────────────────────────────────────────────────────────────────
+
+type EtagFn = (body: Uint8Array, encoding?: string) => string | false | undefined
+
+/** `app.set('etag', ...)`: `true`/`'weak'` (the default), `'strong'`, `false`, or a function. */
+function computeEtag(app: unknown, payload: Uint8Array): string | undefined {
+  const setting = (app as { get?: (key: string) => unknown } | undefined)?.get?.('etag')
+  if (setting === false || setting === undefined) return undefined
+  if (typeof setting === 'function') return (setting as EtagFn)(payload) || undefined
+  if (setting === 'strong') return strongEtag(payload)
+  return weakBodyEtag(payload)
+}
+
+/** Replaces (or adds) the charset parameter with `utf-8`, for a string body written as such. */
+function forceUtf8(type: string): string {
+  if (/charset\s*=/i.test(type)) return type.replace(/charset\s*=\s*[^;]+/i, 'charset=utf-8')
+  return `${type}; charset=utf-8`
+}
 
 /** Always goes through writeHead so on-headers hooks fire. */
 function commitHead(res: ExpResponse): void {
