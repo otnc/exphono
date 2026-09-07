@@ -47,6 +47,17 @@ function compileETag(val: unknown): unknown {
   }
 }
 
+/** `app.set('query parser', ...)`: `req.query`'s getter reads the raw setting itself. */
+function isValidQueryParser(val: unknown): boolean {
+  return (
+    typeof val === 'function' ||
+    val === true ||
+    val === 'simple' ||
+    val === false ||
+    val === 'extended'
+  )
+}
+
 export interface ExpHonoOptions {
   strict?: boolean
   compat?: CompatMode
@@ -175,6 +186,7 @@ export function createApplication(compatDefault: CompatMode = '5'): Application 
 
   app.settings = settings
   app.locals = Object.create(null) as Record<string, unknown>
+  app.locals.settings = settings
   app.engines = Object.create(null) as Record<string, unknown>
   app.cache = Object.create(null) as Record<string, unknown>
   app.mountpath = '/'
@@ -214,6 +226,9 @@ export function createApplication(compatDefault: CompatMode = '5'): Application 
       if (key === 'etag') settings['etag fn'] = compileETag(value)
       if (key === 'trust proxy') {
         settings['trust proxy fn'] = compileTrust(value as Parameters<typeof compileTrust>[0])
+      }
+      if (key === 'query parser' && !isValidQueryParser(value)) {
+        throw new TypeError(`unknown value for query parser function: ${String(value)}`)
       }
       return app
     },

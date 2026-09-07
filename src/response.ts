@@ -31,6 +31,14 @@ interface ResponseState {
   compat: CompatMode
   phase: Phase
   headers: Headers
+  /**
+   * `Headers` (the Fetch standard) has no concept of an array value: appending the same
+   * key repeatedly just joins them with a comma on read. Node's `res.setHeader`/`getHeader`
+   * do remember the original array, though, and Express's res.get()/getHeader() rely on
+   * getting it back verbatim -- so the array as given is kept here, keyed lower-case,
+   * alongside the joined form actually written to `headers`.
+   */
+  rawValues: Map<string, string | string[]>
   chunks: Uint8Array[]
   emitter: MiniEmitter
   resolve: (res: Response) => void
@@ -55,13 +63,13 @@ export interface ExpResponse {
   status(code: number): this
   set(field: string | Record<string, string | string[]>, value?: string | string[]): this
   header(field: string | Record<string, string | string[]>, value?: string | string[]): this
-  get(field: string): string | undefined
+  get(field: string): string | string[] | number | undefined
   append(field: string, value: string | string[]): this
   type(t: string): this
   contentType(t: string): this
   vary(field?: string | string[]): this
   location(url: string): this
-  links(links: Record<string, string>): this
+  links(links: Record<string, string | string[]>): this
   json(body?: unknown): this
   jsonp(body?: unknown): this
   send(body?: unknown): this
@@ -136,17 +144,23 @@ function toBytes(chunk: unknown): Uint8Array {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function setHeaderValue(res: ExpResponse, name: string, value: string | string[] | number): void {
-  const h = st(res).headers
+  const s = st(res)
   const key = String(name)
-  h.delete(key)
-  if (Array.isArray(value)) for (const v of value) h.append(key, String(v))
-  else h.set(key, String(value))
+  s.headers.delete(key)
+  if (Array.isArray(value)) {
+    const strs = value.map(String)
+    s.rawValues.set(key.toLowerCase(), strs)
+    for (const v of strs) s.headers.append(key, v)
+  } else {
+    s.rawValues.set(key.toLowerCase(), String(value))
+    s.headers.set(key, String(value))
+  }
 }
 
 const methods: Partial<ExpResponse> & Record<string, unknown> = {
   status(this: ExpResponse, code: number) {
-    if (st(this).compat === '5' && (!Number.isInteger(code) || code < 100 || code > 999)) {
-      throw new RangeError(`Invalid status code: ${code}. Status code must be an integer 100-999`)
+    if (!Number.isInteger(code) || code < 100 || code > 999) {
+      throw new TypeError(`Invalid status code: ${code}`)
     }
     this.statusCode = code
     return this
@@ -159,6 +173,8 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
 
   getHeader(this: ExpResponse, name: string) {
     const key = String(name).toLowerCase()
+    const raw = st(this).rawValues.get(key)
+    if (raw !== undefined) return raw
     if (key === 'set-cookie') {
       const all = st(this).headers.getSetCookie?.() ?? []
       return all.length > 0 ? all : undefined
@@ -169,10 +185,10 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
   getHeaders(this: ExpResponse) {
     const out: Record<string, string | string[] | undefined> = {}
     st(this).headers.forEach((v, k) => {
-      out[k] = v
+      out[k] = st(this).rawValues.get(k) ?? v
     })
     const sc = st(this).headers.getSetCookie?.() ?? []
-    if (sc.length > 0) out['set-cookie'] = sc
+    if (sc.length > 0 && !st(this).rawValues.has('set-cookie')) out['set-cookie'] = sc
     return out
   },
 
@@ -185,7 +201,9 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
   },
 
   removeHeader(this: ExpResponse, name: string) {
-    st(this).headers.delete(String(name))
+    const s = st(this)
+    s.headers.delete(String(name))
+    s.rawValues.delete(String(name).toLowerCase())
   },
 
   set(
@@ -207,13 +225,23 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
   },
 
   get(this: ExpResponse, field: string) {
-    const v = st(this).headers.get(String(field))
-    return v ?? undefined
+    return this.getHeader(field)
   },
 
   append(this: ExpResponse, field: string, value: string | string[]) {
+    const s = st(this)
+    const key = String(field).toLowerCase()
+    // A prior set(name, array) leaves a raw array cached; appending onto it must
+    // extend that array rather than let the stale cache shadow the new value.
+    const existing = s.rawValues.get(key)
     const values = Array.isArray(value) ? value : [value]
-    for (const v of values) st(this).headers.append(String(field), String(v))
+    if (existing !== undefined) {
+      const merged = (Array.isArray(existing) ? existing : [existing]).concat(values.map(String))
+      s.rawValues.set(key, merged)
+    } else {
+      s.rawValues.delete(key)
+    }
+    for (const v of values) s.headers.append(String(field), String(v))
     return this
   },
 
@@ -261,9 +289,11 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
     return this
   },
 
-  links(this: ExpResponse, links: Record<string, string>) {
+  links(this: ExpResponse, links: Record<string, string | string[]>) {
     const existing = st(this).headers.get('link')
-    const parts = Object.entries(links).map(([rel, url]) => `<${url}>; rel="${rel}"`)
+    const parts = Object.entries(links).flatMap(([rel, urls]) =>
+      (Array.isArray(urls) ? urls : [urls]).map((url) => `<${url}>; rel="${rel}"`),
+    )
     setHeaderValue(this, 'link', existing ? `${existing}, ${parts.join(', ')}` : parts.join(', '))
     return this
   },
@@ -379,9 +409,7 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
 
     this.status(status)
     setHeaderValue(this, 'content-length', String(encoder.encode(body).byteLength))
-
-    if (this.req?.method === 'HEAD') this.end()
-    else this.end(body)
+    this.end(body)
 
     return this
   },
@@ -709,9 +737,12 @@ function finish(res: ExpResponse, payload: Uint8Array): void {
   commitHead(res)
   s.phase = 'ended'
 
-  const noBody = res.statusCode === 204 || res.statusCode === 304 || res.req?.method === 'HEAD'
+  // A HEAD response still reports the headers a GET would have sent -- only the body
+  // bytes are withheld -- whereas 204/304 genuinely have neither a body nor these headers.
+  const suppressHeaders = res.statusCode === 204 || res.statusCode === 304
+  const noBody = suppressHeaders || res.req?.method === 'HEAD'
   const body = noBody || payload.byteLength === 0 ? null : payload
-  if (noBody) {
+  if (suppressHeaders) {
     s.headers.delete('content-type')
     s.headers.delete('content-length')
   } else {
@@ -775,6 +806,7 @@ export function createResponse({
       compat,
       phase: 'idle',
       headers: new Headers(),
+      rawValues: new Map(),
       chunks: [],
       emitter: new MiniEmitter(),
       resolve,

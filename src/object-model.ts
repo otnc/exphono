@@ -28,6 +28,15 @@ export const kRemoteAddress = Symbol('exphono.remoteAddress')
 export const kActualStatus = Symbol('exphono.actualStatus')
 
 /**
+ * A `GET`/`HEAD` Fetch `Request` cannot carry a body at all, so the Node adapter never
+ * attaches one for those methods -- but a connect-style handler that reads the raw Node
+ * request stream directly (`req.on('data', ...)`) still needs access to those bytes even
+ * on a GET. The real Node `IncomingMessage` is stashed here regardless of method, so
+ * ExpHono's `req` can forward its stream methods straight to it when present.
+ */
+export const kNodeStream = Symbol('exphono.nodeStream')
+
+/**
  * Define a getter on the prototype that caches its result as an own property on first access, so derived values are computed once per request without leaking between them.
  */
 export function defineLazyGetter<T extends object>(

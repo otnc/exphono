@@ -118,6 +118,25 @@ export function resolveAddress(
   return chain[chain.length - 1] ?? socketAddr
 }
 
+/**
+ * `req.ips`: the whole trusted portion of the chain, socket address excluded and
+ * outermost (closest to the original client) first -- matching `proxyaddr.all(req,
+ * trust).reverse().pop()`, stopping at (and including) the first untrusted hop.
+ */
+export function resolveAllAddresses(
+  socketAddr: string | undefined,
+  forwarded: string[],
+  trust: TrustFn,
+): string[] {
+  const chain = [socketAddr, ...forwarded].filter((a): a is string => Boolean(a))
+  const trusted: string[] = []
+  for (let i = 0; i < chain.length; i++) {
+    trusted.push(chain[i] as string)
+    if (i === chain.length - 1 || !trust(chain[i] as string, i)) break
+  }
+  return trusted.slice(1).reverse()
+}
+
 /** The forwarded chain, nearest hop first. */
 export function forwardedChain(header: string | undefined): string[] {
   if (!header) return []

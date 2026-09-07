@@ -18,7 +18,7 @@ export function serializeCookie(name: string, value: string, options: CookieOpti
   const encode = options.encode ?? encodeURIComponent
   const parts = [`${name}=${encode(value)}`]
 
-  if (options.maxAge !== undefined) {
+  if (options.maxAge != null) {
     if (!Number.isFinite(options.maxAge)) throw new TypeError('option maxAge is invalid')
     parts.push(`Max-Age=${Math.floor(options.maxAge)}`)
   }

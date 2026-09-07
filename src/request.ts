@@ -8,9 +8,21 @@ import type { Context } from 'hono'
 import { report } from './diagnostics.js'
 import type { CompatMode } from './inventory.js'
 import { parseUrlencoded } from './middleware/body.js'
-import { defineLazyGetter, invalidateLazy, kRemoteAddress, kState } from './object-model.js'
+import {
+  defineLazyGetter,
+  invalidateLazy,
+  kNodeStream,
+  kRemoteAddress,
+  kState,
+} from './object-model.js'
+import { MiniEmitter } from './runtime/event-emitter.js'
 import { accepts, acceptsSimple, isFresh, isType, parseRange } from './utils/negotiation.js'
-import { compileTrust, forwardedChain, resolveAddress } from './utils/trust-proxy.js'
+import {
+  compileTrust,
+  forwardedChain,
+  resolveAddress,
+  resolveAllAddresses,
+} from './utils/trust-proxy.js'
 
 export interface FakeSocket {
   remoteAddress: string | undefined
@@ -31,6 +43,10 @@ interface RequestState {
   compat: CompatMode
   /** Parsed request URL. */
   parsed: URL
+  emitter: MiniEmitter
+  /** Set once the raw body stream has started being pumped into 'data'/'end' events. */
+  pumpStarted: boolean
+  encoding: string | null
 }
 
 export interface ExpRequest {
@@ -60,8 +76,8 @@ export interface ExpRequest {
   readonly rawHeaders: string[]
   readonly protocol: string
   readonly secure: boolean
-  readonly host: string
-  readonly hostname: string
+  readonly host: string | undefined
+  readonly hostname: string | undefined
   readonly subdomains: string[]
   readonly ip: string | undefined
   readonly ips: string[]
@@ -90,6 +106,18 @@ export interface ExpRequest {
   acceptsCharset(...charsets: string[]): string | string[] | false
   acceptsEncoding(...encodings: string[]): string | string[] | false
   acceptsLanguage(...langs: string[]): string | string[] | false
+
+  // Node `Readable`-like surface
+  on(event: string, listener: (...a: unknown[]) => void): this
+  addListener(event: string, listener: (...a: unknown[]) => void): this
+  once(event: string, listener: (...a: unknown[]) => void): this
+  removeListener(event: string, listener: (...a: unknown[]) => void): this
+  emit(event: string, ...args: unknown[]): boolean
+  listeners(event: string): ((...a: unknown[]) => void)[]
+  setEncoding(encoding: string): this
+  pause(): this
+  resume(): this
+  isPaused(): boolean
 
   [kState]: RequestState
 }
@@ -193,6 +221,148 @@ const protoMethods: Record<string, (this: ExpRequest, ...args: never[]) => unkno
     deprecatedInV5(this, 'req.acceptsLanguage')
     return this.acceptsLanguages(...(langs.flat() as string[]))
   },
+
+  // Node `Readable`-like surface: connect-style middleware reads the request body
+  // directly via `req.on('data'/'end')` rather than through a body-parser.
+
+  on(this: ExpRequest, event: string, listener: (...a: unknown[]) => void) {
+    const stream = nodeStreamOf(this)
+    if (stream) {
+      stream.on(event, listener)
+      return this
+    }
+    if (event === 'data' || event === 'readable') startBodyPump(this)
+    this[kState].emitter.on(event, listener)
+    return this
+  },
+  addListener(this: ExpRequest, event: string, listener: (...a: unknown[]) => void) {
+    return this.on(event, listener)
+  },
+  once(this: ExpRequest, event: string, listener: (...a: unknown[]) => void) {
+    const stream = nodeStreamOf(this)
+    if (stream) {
+      stream.once(event, listener)
+      return this
+    }
+    if (event === 'data' || event === 'readable') startBodyPump(this)
+    this[kState].emitter.once(event, listener)
+    return this
+  },
+  removeListener(this: ExpRequest, event: string, listener: (...a: unknown[]) => void) {
+    const stream = nodeStreamOf(this)
+    if (stream) {
+      stream.removeListener(event, listener)
+      return this
+    }
+    this[kState].emitter.removeListener(event, listener)
+    return this
+  },
+  emit(this: ExpRequest, event: string, ...args: unknown[]) {
+    return this[kState].emitter.emit(event, ...args)
+  },
+  listeners(this: ExpRequest, event: string) {
+    const stream = nodeStreamOf(this)
+    if (stream) return stream.listeners(event)
+    return this[kState].emitter.listeners(event)
+  },
+  setEncoding(this: ExpRequest, encoding: string) {
+    const stream = nodeStreamOf(this)
+    if (stream) {
+      stream.setEncoding(encoding)
+      return this
+    }
+    this[kState].encoding = encoding
+    return this
+  },
+  pause(this: ExpRequest) {
+    nodeStreamOf(this)?.pause()
+    return this
+  },
+  resume(this: ExpRequest) {
+    const stream = nodeStreamOf(this)
+    if (stream) {
+      stream.resume()
+      return this
+    }
+    startBodyPump(this)
+    return this
+  },
+  isPaused(this: ExpRequest) {
+    return nodeStreamOf(this)?.isPaused() ?? false
+  },
+}
+
+interface BufferLike {
+  from(
+    buffer: ArrayBufferLike,
+    byteOffset: number,
+    length: number,
+  ): { toString(enc: string): string }
+}
+
+interface NodeReadableLike {
+  on(event: string, listener: (...a: unknown[]) => void): unknown
+  once(event: string, listener: (...a: unknown[]) => void): unknown
+  removeListener(event: string, listener: (...a: unknown[]) => void): unknown
+  listeners(event: string): ((...a: unknown[]) => void)[]
+  setEncoding(encoding: string): unknown
+  pause(): unknown
+  resume(): unknown
+  isPaused(): boolean
+}
+
+/**
+ * On Node, the real `IncomingMessage` behind this request -- kept around because a
+ * bodyless method's Fetch `Request` (GET, HEAD, ...) can't carry `init.body` at all, yet
+ * connect-style middleware still needs to read those raw bytes directly.
+ */
+function nodeStreamOf(req: ExpRequest): NodeReadableLike | undefined {
+  const raw = req[kState].ctx.req.raw as unknown as Record<symbol, unknown>
+  return raw[kNodeStream] as NodeReadableLike | undefined
+}
+
+/**
+ * Pumps the Fetch body stream into 'data'/'end' events, matching Node's `IncomingMessage`.
+ * Starts on the first 'data'/'readable' listener or an explicit `resume()`, same as a real stream going into flowing mode.
+ */
+function startBodyPump(req: ExpRequest): void {
+  const state = req[kState]
+  if (state.pumpStarted) return
+  state.pumpStarted = true
+
+  const body = state.ctx.req.raw.body
+  if (!body) {
+    queueMicrotask(() => req.emit('end'))
+    return
+  }
+
+  const reader = body.getReader()
+  const pump = (): void => {
+    reader.read().then(
+      ({ done, value }) => {
+        if (done) {
+          req.emit('end')
+          return
+        }
+        req.emit('data', toChunk(value, state.encoding))
+        pump()
+      },
+      (err: unknown) => {
+        req.emit('error', err)
+      },
+    )
+  }
+  pump()
+}
+
+/** On Node and Bun, a real `Buffer` (optionally decoded to a string); elsewhere raw bytes or a decoded string. */
+function toChunk(value: Uint8Array, encoding: string | null): unknown {
+  const ctor = (globalThis as { Buffer?: BufferLike }).Buffer
+  if (ctor) {
+    const buf = ctor.from(value.buffer, value.byteOffset, value.byteLength)
+    return encoding ? buf.toString(encoding) : buf
+  }
+  return encoding ? new TextDecoder(encoding).decode(value) : value
 }
 
 /** Reports a v4-only API being used under compat=5. */
@@ -238,7 +408,10 @@ defineLazyGetter(requestProto, 'rawHeaders', function (this: ExpRequest) {
 })
 
 defineLazyGetter(requestProto, 'protocol', function (this: ExpRequest) {
-  const direct = this[kState].parsed.protocol.replace(':', '')
+  // Reads back from the socket rather than the parsed URL, so test code that flips
+  // req.socket.encrypted after the fact (a common idiom for simulating TLS termination
+  // at a proxy) is actually reflected here, the way it would be against a real socket.
+  const direct = this.socket.encrypted ? 'https' : 'http'
   if (!trustFn(this)(this.socket.remoteAddress ?? '', 0)) return direct
   const forwarded = str(headerOf(this, 'x-forwarded-proto'))
   if (!forwarded) return direct
@@ -251,7 +424,7 @@ defineLazyGetter(requestProto, 'secure', function (this: ExpRequest) {
 
 defineLazyGetter(requestProto, 'host', function (this: ExpRequest) {
   const raw = hostHeader(this)
-  if (!raw) return ''
+  if (!raw) return undefined
   // Express 4 strips the port, Express 5 keeps it
   if (this[kState].compat === '4') return stripPort(raw)
   return raw
@@ -259,16 +432,23 @@ defineLazyGetter(requestProto, 'host', function (this: ExpRequest) {
 
 defineLazyGetter(requestProto, 'hostname', function (this: ExpRequest) {
   const raw = hostHeader(this)
-  return raw ? stripPort(raw) : ''
+  return raw ? stripPort(raw) : undefined
 })
 
-function hostHeader(req: ExpRequest): string {
+/**
+ * `undefined` when there is genuinely no Host header to report, matching Express -- a
+ * request built from a URL always has *some* host to fall back to, but the Host header
+ * itself, once materialized onto req.headers, is the one Express code actually reads.
+ */
+function hostHeader(req: ExpRequest): string | undefined {
   if (trustFn(req)(req.socket.remoteAddress ?? '', 0)) {
     const forwarded = str(headerOf(req, 'x-forwarded-host'))
     // Only the first value is meaningful; the rest are upstream hops
     if (forwarded) return (forwarded.split(',')[0] ?? '').trim()
   }
-  return str(headerOf(req, 'host')) ?? req[kState].parsed.host
+  return Object.hasOwn(req, 'headers')
+    ? str(headerOf(req, 'host'))
+    : (str(headerOf(req, 'host')) ?? req[kState].parsed.host)
 }
 
 /** The compiled `trust proxy` setting for this request's app. */
@@ -316,16 +496,18 @@ defineLazyGetter(requestProto, 'query', function (this: ExpRequest) {
 defineLazyGetter(requestProto, 'subdomains', function (this: ExpRequest) {
   const hostname = this.hostname
   if (!hostname) return []
-  // An IP address has no subdomains
-  if (/^[\d.]+$/.test(hostname) || hostname.startsWith('[')) return []
   const offset = Number(appSetting(this, 'subdomain offset') ?? 2)
-  return hostname.split('.').reverse().slice(offset)
+  // An IP address has no subdomains to split -- it's kept whole, so an offset of 0
+  // (rather than the default 2) still reports it
+  const isIp = /^[\d.]+$/.test(hostname) || hostname.startsWith('[')
+  const parts = isIp ? [hostname] : hostname.split('.').reverse()
+  return parts.slice(offset)
 })
 
 defineLazyGetter(requestProto, 'ips', function (this: ExpRequest) {
-  const trust = trustFn(this)
+  if (!trustFn(this)(this.socket.remoteAddress ?? '', 0)) return []
   const chain = forwardedChain(str(headerOf(this, 'x-forwarded-for')))
-  return trust(this.socket.remoteAddress ?? '', 0) ? chain.slice().reverse() : []
+  return resolveAllAddresses(this.socket.remoteAddress, chain, trustFn(this))
 })
 
 defineLazyGetter(requestProto, 'ip', function (this: ExpRequest) {
@@ -448,7 +630,14 @@ export function createRequest({ ctx, proto, compat }: CreateRequestOptions): Exp
   const url = parsed.pathname + parsed.search
 
   Object.defineProperty(req, kState, {
-    value: { ctx, compat, parsed } satisfies RequestState,
+    value: {
+      ctx,
+      compat,
+      parsed,
+      emitter: new MiniEmitter(),
+      pumpStarted: false,
+      encoding: null,
+    } satisfies RequestState,
     enumerable: false,
     writable: false,
     configurable: true,

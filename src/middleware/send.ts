@@ -290,7 +290,12 @@ export async function sendFile(
 
   if (ifMatch !== undefined || ifUnmodifiedSince !== undefined) {
     if (
-      isPreconditionFailure(ifMatch, ifUnmodifiedSince, res.get('etag'), res.get('last-modified'))
+      isPreconditionFailure(
+        ifMatch,
+        ifUnmodifiedSince,
+        asString(res.get('etag')),
+        asString(res.get('last-modified')),
+      )
     ) {
       throw fileFoundError(412, 'Precondition Failed')
     }
@@ -303,7 +308,7 @@ export async function sendFile(
         'if-modified-since': asString(req.get('if-modified-since')),
         'cache-control': asString(req.get('cache-control')),
       },
-      { etag: res.get('etag'), 'last-modified': res.get('last-modified') },
+      { etag: asString(res.get('etag')), 'last-modified': asString(res.get('last-modified')) },
     )
   ) {
     res.status(304).end()
@@ -331,7 +336,7 @@ export async function sendFile(
   await pipe(res, await readFileStream(file), req.method === 'HEAD')
 }
 
-function asString(value: string | string[] | undefined): string | undefined {
+function asString(value: string | string[] | number | undefined): string | undefined {
   return typeof value === 'string' ? value : undefined
 }
 
