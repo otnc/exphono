@@ -9,6 +9,7 @@ coverage/
 !.env.example
 
 # Scratch directories written by tests
+.probe/
 .consumption-tmp/
 .worker-tmp/
-.express-suite/
+express-suite-vendor/

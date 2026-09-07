@@ -48,7 +48,9 @@ try {
       '--exit',
       `${suiteDir.replace(/\\/g, '/')}/*.js`,
     ],
-    { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 },
+    // Run from the suite directory itself: a few tests hard-code 'test/fixtures/...'
+    // relative paths, matching the original express package's own layout.
+    { cwd: suiteDir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 },
   )
 } catch (e) {
   // mocha exits non-zero whenever anything failed, which is the normal case here

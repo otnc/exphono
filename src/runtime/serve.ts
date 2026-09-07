@@ -127,7 +127,11 @@ async function toFetchRequest(req: NodeIncomingMessage): Promise<Request> {
   const method = (req.method ?? 'GET').toUpperCase()
   const scheme = req.socket?.encrypted ? 'https' : 'http'
   const host = (req.headers.host as string | undefined) ?? 'localhost'
-  const url = new URL(req.url ?? '/', `${scheme}://${host}`)
+  // Concatenated rather than resolved via `new URL(path, base)`: a request-target starting
+  // with `//` (e.g. `GET //todo@txt`) is a valid, if unusual, origin-form path, but the
+  // two-argument URL constructor treats a leading `//` as a network-path reference and
+  // reparses it as a different authority instead of keeping it as the pathname.
+  const url = new URL(`${scheme}://${host}${req.url ?? '/'}`)
 
   const headers = new Headers()
   for (let i = 0; i < req.rawHeaders.length; i += 2) {
