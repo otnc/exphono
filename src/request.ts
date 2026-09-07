@@ -103,6 +103,18 @@ export const requestProto = {} as ExpRequest
 
 function headerOf(req: ExpRequest, name: string): string | string[] | undefined {
   const lower = String(name).toLowerCase()
+
+  // `req.headers` is a plain object once materialized (see the lazy getter below), and
+  // Express code sometimes mutates it directly expecting `req.get()` to see the change.
+  if (Object.hasOwn(req, 'headers')) {
+    const materialized = (req.headers as Record<string, string | string[] | undefined>)[lower]
+    if (materialized !== undefined) return materialized
+    if (lower === 'referer' || lower === 'referrer') {
+      return req.headers.referer ?? req.headers.referrer
+    }
+    return undefined
+  }
+
   const headers = req[kState].ctx.req.raw.headers
   if (lower === 'referer' || lower === 'referrer') {
     return headers.get('referer') ?? headers.get('referrer') ?? undefined

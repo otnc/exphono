@@ -8,6 +8,7 @@ import { kState } from '../object-model.js'
 import type { ExpRequest } from '../request.js'
 import type { ExpResponse } from '../response.js'
 import type { NextFunction, RequestHandler } from '../router/index.js'
+import { lookupMimeType } from '../utils/mime.js'
 
 export type TypeOption = string | string[] | ((req: ExpRequest) => boolean)
 
@@ -22,6 +23,8 @@ export interface BodyOptions {
   inflate?: boolean
   /** urlencoded only: parse nested keys. */
   extended?: boolean
+  /** urlencoded only: maximum number of parameters to accept. */
+  parameterLimit?: number
   /** JSON only: only accept objects and arrays at the top level. */
   strict?: boolean
   /** Charset assumed when the request does not name one. */
@@ -57,7 +60,9 @@ function typeMatches(req: ExpRequest, expected: TypeOption): boolean {
   if (!actual) return false
   const list = Array.isArray(expected) ? expected : [expected]
   return list.some((want) => {
-    const w = want.toLowerCase()
+    // A bare extension like 'urlencoded' or 'json' resolves through the same table
+    // `res.type()` uses, matching `type-is`'s support for mime-db extension names.
+    const w = (want.includes('/') ? want : lookupMimeType(want)).toLowerCase()
     if (w === '*/*' || w === actual) return true
     if (w.endsWith('/*')) return actual.startsWith(w.slice(0, -1))
     // Suffix form, e.g. '+json'
@@ -119,7 +124,12 @@ async function readBytes(req: ExpRequest, limit: number, inflate: boolean): Prom
   let stream = req[kState].ctx.req.raw.body
 
   if (encoding !== 'identity') {
-    if (!inflate || !INFLATABLE.has(encoding)) {
+    if (!inflate) {
+      const err = new BodyError(415, 'encoding.unsupported', 'content encoding unsupported')
+      err.encoding = encoding
+      throw err
+    }
+    if (!INFLATABLE.has(encoding)) {
       const err = new BodyError(
         415,
         'encoding.unsupported',
@@ -136,17 +146,29 @@ async function readBytes(req: ExpRequest, limit: number, inflate: boolean): Prom
 
   if (stream) {
     const reader = stream.getReader()
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      total += value.byteLength
-      if (total > limit) {
-        const err = new BodyError(413, 'entity.too.large', 'request entity too large')
-        err.limit = limit
-        err.length = total
-        throw err
+    try {
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        total += value.byteLength
+        if (total > limit) {
+          const err = new BodyError(413, 'entity.too.large', 'request entity too large')
+          err.limit = limit
+          err.length = total
+          throw err
+        }
+        chunks.push(value)
       }
-      chunks.push(value)
+    } catch (e) {
+      // The client may still be sending bytes we've decided not to read (e.g. a body
+      // over the limit, mid-upload). Cancelling propagates through DecompressionStream to
+      // the underlying Node request, instead of leaving the connection hung waiting for
+      // an end that a caller who already got their error response has no reason to send.
+      reader.cancel().catch(() => undefined)
+      // A malformed gzip/deflate body surfaces as a generic decompression error here;
+      // Express reports that as a 400 rather than letting it fall through as a 500.
+      if (e instanceof BodyError) throw e
+      throw new BodyError(400, 'encoding.decode.failed', (e as Error)?.message ?? 'stream error')
     }
   }
 
@@ -173,9 +195,20 @@ async function readBytes(req: ExpRequest, limit: number, inflate: boolean): Prom
   return out
 }
 
+/**
+ * Node's `TextDecoder` treats the bare `utf-16` label as an alias for `utf-16le` and never
+ * sniffs the byte-order mark, unlike browsers. Resolve the BOM ourselves so a big-endian
+ * payload (`FE FF`) decodes correctly instead of coming out garbled.
+ */
+function resolveDecoderCharset(charset: string, bytes: Uint8Array): string {
+  if (charset !== 'utf-16' && charset !== 'utf16') return charset
+  if (bytes[0] === 0xfe && bytes[1] === 0xff) return 'utf-16be'
+  return 'utf-16le'
+}
+
 function decode(bytes: Uint8Array, charset: string): string {
   try {
-    return new TextDecoder(charset).decode(bytes)
+    return new TextDecoder(resolveDecoderCharset(charset, bytes)).decode(bytes)
   } catch {
     const err = new BodyError(
       415,
@@ -187,12 +220,26 @@ function decode(bytes: Uint8Array, charset: string): string {
   }
 }
 
+function isSupportedCharset(charset: string): boolean {
+  try {
+    new TextDecoder(charset)
+    return true
+  } catch {
+    return false
+  }
+}
+
 function makeParser(
   defaultType: TypeOption,
   options: BodyOptions,
   parse: (bytes: Uint8Array, charset: string) => unknown,
   emptyValue: () => unknown,
+  isValidCharset: (charset: string) => boolean = isSupportedCharset,
 ): RequestHandler {
+  if (options.verify !== undefined && typeof options.verify !== 'function') {
+    throw new TypeError('option verify must be function')
+  }
+
   const limit = parseLimit(options.limit)
   const wanted = options.type ?? defaultType
   const inflate = options.inflate ?? true
@@ -215,14 +262,99 @@ function makeParser(
 
     const charset = charsetOf(req) || defaultCharset
 
+    // Checked ahead of reading the body (and, in particular, ahead of `verify`) so a
+    // request with an unsupported charset never reaches user code at all.
+    if (!isValidCharset(charset)) {
+      const err = new BodyError(
+        415,
+        'charset.unsupported',
+        `unsupported charset "${charset.toUpperCase()}"`,
+      )
+      err.charset = charset
+      next(err)
+      return
+    }
+
     readBytes(req, limit, inflate)
-      .then((bytes) => {
-        options.verify?.(req, res, bytes, charset)
+      .then((rawBytes) => {
+        // Express hands a real Node `Buffer` to `verify` and to `express.raw()`'s result;
+        // code that checks `Buffer.isBuffer(req.body)` would otherwise see a plain
+        // `Uint8Array` and treat it as unrecognized.
+        const bytes = toBuffer(rawBytes)
+        runVerify(options.verify, req, res, bytes, charset)
         req.body = bytes.byteLength === 0 ? emptyValue() : parse(bytes, charset)
         next()
       })
       .catch(next)
   }
+}
+
+interface VerifyFailure {
+  status?: number
+  statusCode?: number
+  type?: string
+  body?: unknown
+}
+
+/** A thrown `verify` error becomes a 403 with `entity.verify.failed`, unless it says otherwise. */
+function runVerify(
+  verify: BodyOptions['verify'],
+  req: ExpRequest,
+  res: ExpResponse,
+  bytes: Uint8Array,
+  charset: string,
+): void {
+  if (!verify) return
+  try {
+    verify(req, res, bytes, charset)
+  } catch (e) {
+    const err = e as VerifyFailure
+    err.status = err.status ?? err.statusCode ?? 403
+    err.statusCode = err.status
+    err.type = err.type ?? 'entity.verify.failed'
+    err.body = err.body ?? bytes
+    throw err
+  }
+}
+
+interface BufferLike {
+  from(buffer: ArrayBufferLike, byteOffset: number, length: number): Uint8Array
+}
+
+/** On Node and Bun, wraps the bytes in a real `Buffer` with no copy; elsewhere a no-op. */
+function toBuffer(bytes: Uint8Array): Uint8Array {
+  const ctor = (globalThis as { Buffer?: BufferLike }).Buffer
+  return ctor ? ctor.from(bytes.buffer, bytes.byteOffset, bytes.byteLength) : bytes
+}
+
+const FIRST_NON_WHITESPACE = /^[ \t\n\r]*([^ \t\n\r])/
+
+function firstNonWhitespaceChar(text: string): string | undefined {
+  return FIRST_NON_WHITESPACE.exec(text)?.[1]
+}
+
+/**
+ * Builds the same error `JSON.parse` itself would raise for a bare primitive like `true`,
+ * even though that primitive parses fine on its own — strict mode rejects it only because
+ * it isn't wrapped in `{}`/`[]`. Replacing everything after the first real character with
+ * `#` (a token `JSON.parse` always rejects) reuses V8's own message instead of inventing one.
+ */
+function jsonStrictSyntaxError(text: string, firstChar: string | undefined): BodyError {
+  const index = text.indexOf(String(firstChar))
+  const partial = index === -1 ? '' : text.slice(0, index) + '#'.repeat(text.length - index)
+  try {
+    JSON.parse(partial)
+  } catch (e) {
+    const message = (e as Error).message.replace(/#+/g, (placeholder) =>
+      text.slice(index, index + placeholder.length),
+    )
+    const err = new BodyError(400, 'entity.parse.failed', message)
+    err.body = text
+    return err
+  }
+  const err = new BodyError(400, 'entity.parse.failed', `Unexpected token ${firstChar}`)
+  err.body = text
+  return err
 }
 
 export function json(options: BodyOptions = {}): RequestHandler {
@@ -232,11 +364,9 @@ export function json(options: BodyOptions = {}): RequestHandler {
     options,
     (bytes, charset) => {
       const text = decode(bytes, charset)
-      const first = text.trimStart().charAt(0)
-      if (strict && first !== '{' && first !== '[') {
-        const err = new BodyError(400, 'entity.parse.failed', `Unexpected token ${first}`)
-        err.body = text
-        throw err
+      if (strict) {
+        const first = firstNonWhitespaceChar(text)
+        if (first !== '{' && first !== '[') throw jsonStrictSyntaxError(text, first)
       }
       try {
         return JSON.parse(text)
@@ -247,6 +377,7 @@ export function json(options: BodyOptions = {}): RequestHandler {
       }
     },
     () => ({}),
+    (charset) => charset.startsWith('utf-'),
   )
 }
 
@@ -264,30 +395,46 @@ export function raw(options: BodyOptions = {}): RequestHandler {
     'application/octet-stream',
     options,
     (bytes) => bytes,
-    () => new Uint8Array(0),
+    () => toBuffer(new Uint8Array(0)),
+    // Raw bodies are never decoded, so a charset on the request is irrelevant here.
+    () => true,
   )
 }
 
 export function urlencoded(options: BodyOptions = {}): RequestHandler {
   const extended = options.extended ?? false
+  const parameterLimit = options.parameterLimit ?? 1000
+  if (typeof parameterLimit !== 'number' || Number.isNaN(parameterLimit) || parameterLimit <= 0) {
+    throw new TypeError('option parameterLimit must be a positive number')
+  }
   return makeParser(
     'application/x-www-form-urlencoded',
     options,
-    (bytes, charset) => parseUrlencoded(decode(bytes, charset), extended),
+    (bytes, charset) => parseUrlencoded(decode(bytes, charset), extended, parameterLimit),
     () => ({}),
+    (charset) => charset === 'utf-8' || charset === 'iso-8859-1',
   )
 }
 
 /**
  * Parses application/x-www-form-urlencoded.
  *
- * `extended: false` behaves like querystring.parse (repeated keys become arrays); `extended: true` also understands `a[b]=1`. Both reject prototype-polluting keys.
+ * `extended: false` behaves like querystring.parse (repeated keys become arrays); `extended: true` also understands `a[b]=1` and `a[]=1`, and folds an object with consecutive numeric keys back into an array afterwards, matching the `qs` package. Both reject prototype-polluting keys.
  */
-export function parseUrlencoded(input: string, extended: boolean): Record<string, unknown> {
+export function parseUrlencoded(
+  input: string,
+  extended: boolean,
+  parameterLimit = Number.POSITIVE_INFINITY,
+): Record<string, unknown> {
   const out: Record<string, unknown> = Object.create(null)
   if (input.length === 0) return out
 
+  let count = 0
   for (const [rawKey, value] of new URLSearchParams(input)) {
+    count++
+    if (count > parameterLimit) {
+      throw new BodyError(413, 'parameters.too.many', 'too many parameters')
+    }
     if (isUnsafeKey(rawKey)) continue
     if (!extended) {
       assign(out, rawKey, value)
@@ -297,7 +444,19 @@ export function parseUrlencoded(input: string, extended: boolean): Record<string
     if (path.some(isUnsafeKey)) continue
     assignDeep(out, path, value)
   }
-  return out
+  return extended ? (compactArrays(out) as Record<string, unknown>) : out
+}
+
+/** Recursively turns an object whose keys are exactly `0, 1, 2, ...` into a real array. */
+function compactArrays(value: unknown): unknown {
+  if (value === null || typeof value !== 'object') return value
+  const obj = value as Record<string, unknown>
+  const keys = Object.keys(obj)
+  for (const key of keys) obj[key] = compactArrays(obj[key])
+  if (keys.length > 0 && keys.every((key, i) => key === String(i))) {
+    return keys.map((key) => obj[key])
+  }
+  return obj
 }
 
 const UNSAFE = new Set(['__proto__', 'constructor', 'prototype'])
@@ -328,14 +487,21 @@ function parseBracketPath(key: string): string[] {
   return parts
 }
 
-function assignDeep(root: Record<string, unknown>, path: string[], value: string): void {
-  // `c[]=1&c[]=2` ends in an empty key: treat the parent as an array
-  const pushToArray = path[path.length - 1] === ''
-  const keys = pushToArray ? path.slice(0, -1) : path
+/**
+ * `foo[]` (an empty bracket) means "the next index in this node", not a literal key —
+ * `compactArrays` later turns a node holding only `0, 1, 2, ...` back into an array.
+ */
+function resolveArrayKey(node: Record<string, unknown>, key: string): string {
+  if (key !== '') return key
+  let index = 0
+  while (Object.hasOwn(node, String(index))) index++
+  return String(index)
+}
 
+function assignDeep(root: Record<string, unknown>, path: string[], value: string): void {
   let node: Record<string, unknown> = root
-  for (let i = 0; i < keys.length - 1; i++) {
-    const key = keys[i] as string
+  for (let i = 0; i < path.length - 1; i++) {
+    const key = resolveArrayKey(node, path[i] as string)
     const next = node[key]
     if (typeof next !== 'object' || next === null || Array.isArray(next)) {
       node[key] = Object.create(null) as Record<string, unknown>
@@ -343,12 +509,6 @@ function assignDeep(root: Record<string, unknown>, path: string[], value: string
     node = node[key] as Record<string, unknown>
   }
 
-  const last = keys[keys.length - 1] as string
-  if (pushToArray) {
-    const existing = node[last]
-    if (Array.isArray(existing)) existing.push(value)
-    else node[last] = [value]
-    return
-  }
-  assign(node, last, value)
+  const lastKey = resolveArrayKey(node, path[path.length - 1] as string)
+  assign(node, lastKey, value)
 }
