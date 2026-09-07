@@ -55,6 +55,11 @@ export async function isAbsolutePath(path: string): Promise<boolean> {
   return isAbsolute(path)
 }
 
+export async function normalizePath(path: string): Promise<string> {
+  const { normalize } = await import('node:path')
+  return normalize(path)
+}
+
 export async function extname(path: string): Promise<string> {
   const { extname: ext } = await import('node:path')
   return ext(path)

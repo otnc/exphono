@@ -28,6 +28,10 @@ export async function isAbsolutePath(path: string): Promise<boolean> {
   return path.startsWith('/')
 }
 
+export async function normalizePath(path: string): Promise<string> {
+  return normalize(path)
+}
+
 export async function extname(path: string): Promise<string> {
   const base = path.split('/').pop() ?? ''
   const dot = base.lastIndexOf('.')

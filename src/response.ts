@@ -16,6 +16,7 @@ import { type SendOptions, sendFile } from './middleware/send.js'
 import { kState } from './object-model.js'
 import type { ExpRequest, FakeSocket } from './request.js'
 import { MiniEmitter } from './runtime/event-emitter.js'
+import { resolvePath } from './runtime/files.js'
 import { type CookieOptions, serializeCookie } from './utils/cookie.js'
 import { sign } from './utils/hmac.js'
 import { lookupMimeType, withCharset } from './utils/mime.js'
@@ -72,7 +73,8 @@ export interface ExpResponse {
   sendFile(path: string, options?: unknown, callback?: (err?: unknown) => void): this
   download(
     path: string,
-    filename?: string | ((err?: unknown) => void),
+    filename?: string | SendOptions | ((err?: unknown) => void),
+    options?: SendOptions | ((err?: unknown) => void),
     callback?: (err?: unknown) => void,
   ): this
   render(view: string, options?: unknown, callback?: (err?: unknown, html?: string) => void): this
@@ -408,6 +410,9 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
   },
 
   sendFile(this: ExpResponse, path: string, options?: unknown, callback?: (e?: unknown) => void) {
+    if (!path) throw new TypeError('path argument is required to res.sendFile')
+    if (typeof path !== 'string') throw new TypeError('path must be a string to res.sendFile')
+
     const opts = (typeof options === 'function' ? {} : (options ?? {})) as SendOptions
     const cb = (typeof options === 'function' ? options : callback) as
       | ((e?: unknown) => void)
@@ -415,7 +420,11 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
     const req = this.req
     if (!req) throw new Error('res.sendFile requires a request')
 
-    sendFile(req, this, path, opts)
+    // Express re-encodes the raw filesystem path with `encodeURI` before handing it to
+    // `send`, so that a literal `%` or space in the path round-trips through the
+    // decodeURIComponent() that `send` applies internally instead of being misread as an
+    // escape sequence.
+    sendFile(req, this, encodeURI(path), opts)
       .then(() => cb?.())
       .catch((err: unknown) => {
         if (cb) cb(err)
@@ -427,23 +436,57 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
   download(
     this: ExpResponse,
     path: string,
-    filename?: string | ((e?: unknown) => void) | Record<string, unknown>,
+    filename?: string | ((e?: unknown) => void) | SendOptions,
     options?: unknown,
     callback?: (e?: unknown) => void,
   ) {
-    let name = path
-    let opts: Record<string, unknown> = {}
-    let cb = callback
+    let done = callback
+    let name: string | undefined = typeof filename === 'string' ? filename : undefined
+    let opts = (
+      typeof options === 'object' && options !== null ? options : null
+    ) as SendOptions | null
 
-    if (typeof filename === 'function') cb = filename
-    else if (typeof filename === 'string') name = filename
-    else if (filename) opts = filename
+    if (typeof filename === 'function') {
+      done = filename
+      name = undefined
+      opts = null
+    } else if (typeof options === 'function') {
+      done = options as (e?: unknown) => void
+      opts = null
+    }
+    if (
+      typeof filename === 'object' &&
+      filename !== null &&
+      (typeof options === 'function' || options === undefined)
+    ) {
+      name = undefined
+      opts = filename
+    }
 
-    if (typeof options === 'function') cb = options as (e?: unknown) => void
-    else if (options) opts = options as Record<string, unknown>
+    const headers: Record<string, string> = {
+      'content-disposition': contentDisposition(name ?? path),
+    }
+    if (opts?.headers) {
+      for (const [key, value] of Object.entries(opts.headers)) {
+        if (key.toLowerCase() !== 'content-disposition') headers[key] = value
+      }
+    }
 
-    this.attachment(name)
-    return this.sendFile(path, opts, cb)
+    const merged: SendOptions = { ...opts, headers }
+
+    // With no root, Express resolves the path against the process's cwd first
+    const req = this.req
+    if (merged.root) {
+      this.sendFile(path, merged, done)
+    } else {
+      resolvePath(path)
+        .then((fullPath) => this.sendFile(fullPath, merged, done))
+        .catch((err) => {
+          if (done) done(err)
+          else req?.next?.(err)
+        })
+    }
+    return this
   },
 
   /**
@@ -584,7 +627,6 @@ function startStreaming(res: ExpResponse): void {
   s.phase = 'streaming'
   const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>()
   s.writer = writable.getWriter()
-  s.headers.delete('content-length')
   s.resolve(
     new Response(readable, {
       status: res.statusCode,

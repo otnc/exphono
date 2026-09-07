@@ -12,7 +12,10 @@ import { join, resolve } from 'node:path'
 export const VERSIONS = { 4: '4.22.2', 5: '5.2.1' }
 
 const root = resolve(import.meta.dirname, '../..')
-export const vendorRoot = join(root, '.express-suite')
+// Deliberately not dot-prefixed: `res.sendFile` with no `root` option checks every
+// ancestor directory name for a leading dot (matching the real `send` package), so a
+// dot-prefixed vendor directory would make its own path look like a dotfile.
+export const vendorRoot = join(root, 'express-suite-vendor')
 
 /** `require('..')`, `require('../')`, `require('../.')` and `require('../index')`. */
 const EXPRESS_ROOT = new RegExp(String.raw`require\(['"]\.\.(?:/index|/\.|/)?['"]\)`, 'g')
@@ -90,7 +93,14 @@ export function prepare(version) {
 
   // Fixtures (views, static files) are referenced by relative path
   const fixtures = join(testDir, 'fixtures')
-  if (existsSync(fixtures)) execFileSync('cp', ['-r', fixtures, join(outDir, 'fixtures')])
+  if (existsSync(fixtures)) {
+    execFileSync('cp', ['-r', fixtures, join(outDir, 'fixtures')])
+    // A handful of tests hard-code 'test/fixtures/...' (the original express package
+    // layout) instead of resolving via __dirname, so the suite is run with outDir as
+    // its cwd and needs a matching test/fixtures copy too.
+    mkdirSync(join(outDir, 'test'), { recursive: true })
+    execFileSync('cp', ['-r', fixtures, join(outDir, 'test', 'fixtures')])
+  }
 
   return outDir
 }
