@@ -22,7 +22,7 @@ function probe(): Runtime {
   if (typeof navigator !== 'undefined' && navigator.userAgent === 'Cloudflare-Workers') {
     return 'workerd'
   }
-  if (typeof g.process !== 'undefined' && g.process?.versions?.node) return 'node'
+  if (g.process?.versions?.node) return 'node'
   return 'unknown'
 }
 
