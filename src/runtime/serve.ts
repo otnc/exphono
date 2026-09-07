@@ -123,6 +123,15 @@ export interface NodeServerResponse {
 
 const BODYLESS = new Set(['GET', 'HEAD', 'DELETE', 'OPTIONS', 'TRACE'])
 
+/**
+ * The Fetch standard forbids constructing a `Request` with these methods at all, since
+ * they carry protocol-level meaning `fetch()` itself can't express. Express has no such
+ * restriction, so a real Node request still needs to route on the real method — built as
+ * `GET` and then shadowed with an own property, since `Request.prototype.method` is a
+ * getter that an instance property takes priority over.
+ */
+const FORBIDDEN_METHODS = new Set(['CONNECT', 'TRACE', 'TRACK'])
+
 async function toFetchRequest(req: NodeIncomingMessage): Promise<Request> {
   const method = (req.method ?? 'GET').toUpperCase()
   const scheme = req.socket?.encrypted ? 'https' : 'http'
@@ -140,13 +149,22 @@ async function toFetchRequest(req: NodeIncomingMessage): Promise<Request> {
     if (name !== undefined && value !== undefined) headers.append(name, value)
   }
 
-  const init: RequestInit & { duplex?: string } = { method, headers }
+  const forbidden = FORBIDDEN_METHODS.has(method)
+  const init: RequestInit & { duplex?: string } = { method: forbidden ? 'GET' : method, headers }
   if (!BODYLESS.has(method)) {
     const { Readable } = await import('node:stream')
     init.body = Readable.toWeb(req as never) as ReadableStream
     init.duplex = 'half'
   }
-  return new Request(url, init as RequestInit)
+  const request = new Request(url, init as RequestInit)
+  if (forbidden) {
+    Object.defineProperty(request, 'method', {
+      value: method,
+      configurable: true,
+      enumerable: true,
+    })
+  }
+  return request
 }
 
 async function writeFetchResponse(response: Response, res: NodeServerResponse): Promise<void> {
