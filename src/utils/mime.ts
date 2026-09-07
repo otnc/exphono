@@ -41,8 +41,12 @@ const MIME: Record<string, string> = {
   multipart: 'multipart/form-data',
 }
 
+/** Accepts a bare extension ('js'), a dotted one ('.js') or a whole filename ('foo.js'). */
 export function lookupMimeType(ext: string): string {
-  return MIME[ext.replace(/^\./, '').toLowerCase()] ?? 'application/octet-stream'
+  const base = ext.split(/[\\/]/).pop() ?? ext
+  const dot = base.lastIndexOf('.')
+  const bare = dot === -1 ? base : base.slice(dot + 1)
+  return MIME[bare.toLowerCase()] ?? 'application/octet-stream'
 }
 
 /** Adds `charset=utf-8` to the types that need it. */

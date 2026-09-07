@@ -13,13 +13,14 @@ import type { Context } from 'hono'
 import { report } from './diagnostics.js'
 import type { CompatMode } from './inventory.js'
 import { type SendOptions, sendFile } from './middleware/send.js'
-import { kState } from './object-model.js'
+import { kActualStatus, kState } from './object-model.js'
 import type { ExpRequest, FakeSocket } from './request.js'
 import { MiniEmitter } from './runtime/event-emitter.js'
 import { resolvePath } from './runtime/files.js'
 import { type CookieOptions, serializeCookie } from './utils/cookie.js'
 import { strongEtag, weakBodyEtag } from './utils/etag.js'
 import { sign } from './utils/hmac.js'
+import { escapeHtml } from './utils/html.js'
 import { lookupMimeType, withCharset } from './utils/mime.js'
 import { encodeUrl } from './utils/url.js'
 
@@ -30,6 +31,14 @@ interface ResponseState {
   compat: CompatMode
   phase: Phase
   headers: Headers
+  /**
+   * `Headers` (the Fetch standard) has no concept of an array value: appending the same
+   * key repeatedly just joins them with a comma on read. Node's `res.setHeader`/`getHeader`
+   * do remember the original array, though, and Express's res.get()/getHeader() rely on
+   * getting it back verbatim -- so the array as given is kept here, keyed lower-case,
+   * alongside the joined form actually written to `headers`.
+   */
+  rawValues: Map<string, string | string[]>
   chunks: Uint8Array[]
   emitter: MiniEmitter
   resolve: (res: Response) => void
@@ -54,13 +63,13 @@ export interface ExpResponse {
   status(code: number): this
   set(field: string | Record<string, string | string[]>, value?: string | string[]): this
   header(field: string | Record<string, string | string[]>, value?: string | string[]): this
-  get(field: string): string | undefined
+  get(field: string): string | string[] | number | undefined
   append(field: string, value: string | string[]): this
   type(t: string): this
   contentType(t: string): this
-  vary(field: string): this
+  vary(field?: string | string[]): this
   location(url: string): this
-  links(links: Record<string, string>): this
+  links(links: Record<string, string | string[]>): this
   json(body?: unknown): this
   jsonp(body?: unknown): this
   send(body?: unknown): this
@@ -135,17 +144,23 @@ function toBytes(chunk: unknown): Uint8Array {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function setHeaderValue(res: ExpResponse, name: string, value: string | string[] | number): void {
-  const h = st(res).headers
+  const s = st(res)
   const key = String(name)
-  h.delete(key)
-  if (Array.isArray(value)) for (const v of value) h.append(key, String(v))
-  else h.set(key, String(value))
+  s.headers.delete(key)
+  if (Array.isArray(value)) {
+    const strs = value.map(String)
+    s.rawValues.set(key.toLowerCase(), strs)
+    for (const v of strs) s.headers.append(key, v)
+  } else {
+    s.rawValues.set(key.toLowerCase(), String(value))
+    s.headers.set(key, String(value))
+  }
 }
 
 const methods: Partial<ExpResponse> & Record<string, unknown> = {
   status(this: ExpResponse, code: number) {
-    if (st(this).compat === '5' && (!Number.isInteger(code) || code < 100 || code > 999)) {
-      throw new RangeError(`Invalid status code: ${code}. Status code must be an integer 100-999`)
+    if (!Number.isInteger(code) || code < 100 || code > 999) {
+      throw new TypeError(`Invalid status code: ${code}`)
     }
     this.statusCode = code
     return this
@@ -158,6 +173,8 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
 
   getHeader(this: ExpResponse, name: string) {
     const key = String(name).toLowerCase()
+    const raw = st(this).rawValues.get(key)
+    if (raw !== undefined) return raw
     if (key === 'set-cookie') {
       const all = st(this).headers.getSetCookie?.() ?? []
       return all.length > 0 ? all : undefined
@@ -168,10 +185,10 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
   getHeaders(this: ExpResponse) {
     const out: Record<string, string | string[] | undefined> = {}
     st(this).headers.forEach((v, k) => {
-      out[k] = v
+      out[k] = st(this).rawValues.get(k) ?? v
     })
     const sc = st(this).headers.getSetCookie?.() ?? []
-    if (sc.length > 0) out['set-cookie'] = sc
+    if (sc.length > 0 && !st(this).rawValues.has('set-cookie')) out['set-cookie'] = sc
     return out
   },
 
@@ -184,7 +201,9 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
   },
 
   removeHeader(this: ExpResponse, name: string) {
-    st(this).headers.delete(String(name))
+    const s = st(this)
+    s.headers.delete(String(name))
+    s.rawValues.delete(String(name).toLowerCase())
   },
 
   set(
@@ -206,13 +225,23 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
   },
 
   get(this: ExpResponse, field: string) {
-    const v = st(this).headers.get(String(field))
-    return v ?? undefined
+    return this.getHeader(field)
   },
 
   append(this: ExpResponse, field: string, value: string | string[]) {
+    const s = st(this)
+    const key = String(field).toLowerCase()
+    // A prior set(name, array) leaves a raw array cached; appending onto it must
+    // extend that array rather than let the stale cache shadow the new value.
+    const existing = s.rawValues.get(key)
     const values = Array.isArray(value) ? value : [value]
-    for (const v of values) st(this).headers.append(String(field), String(v))
+    if (existing !== undefined) {
+      const merged = (Array.isArray(existing) ? existing : [existing]).concat(values.map(String))
+      s.rawValues.set(key, merged)
+    } else {
+      s.rawValues.delete(key)
+    }
+    for (const v of values) s.headers.append(String(field), String(v))
     return this
   },
 
@@ -222,11 +251,36 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
     return this
   },
 
-  vary(this: ExpResponse, field: string) {
-    const current = st(this).headers.get('vary')
-    const parts = current ? current.split(/\s*,\s*/) : []
-    if (!parts.includes(field)) parts.push(field)
-    setHeaderValue(this, 'vary', parts.join(', '))
+  vary(this: ExpResponse, field?: string | string[]) {
+    if (!field || (Array.isArray(field) && field.length === 0)) {
+      if (field === undefined) throw new TypeError('field argument is required')
+      if (typeof field === 'string' && field.length === 0) {
+        throw new TypeError('field argument is required')
+      }
+      // An empty array has nothing to add and leaves an unset header unset, matching
+      // the `vary` package rather than writing out an empty Vary header.
+      return this
+    }
+
+    const fields = Array.isArray(field) ? field : field.split(/\s*,\s*/)
+    const current = st(this).headers.get('vary') ?? ''
+    if (current === '*') return this
+
+    const seen = current ? current.split(/\s*,\s*/).map((v) => v.toLowerCase()) : []
+    let val = current
+    for (const f of fields) {
+      if (f === '*') {
+        setHeaderValue(this, 'vary', '*')
+        return this
+      }
+      const lower = f.toLowerCase()
+      if (!seen.includes(lower)) {
+        seen.push(lower)
+        val = val ? `${val}, ${f}` : f
+      }
+    }
+
+    if (val) setHeaderValue(this, 'vary', val)
     return this
   },
 
@@ -235,9 +289,11 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
     return this
   },
 
-  links(this: ExpResponse, links: Record<string, string>) {
+  links(this: ExpResponse, links: Record<string, string | string[]>) {
     const existing = st(this).headers.get('link')
-    const parts = Object.entries(links).map(([rel, url]) => `<${url}>; rel="${rel}"`)
+    const parts = Object.entries(links).flatMap(([rel, urls]) =>
+      (Array.isArray(urls) ? urls : [urls]).map((url) => `<${url}>; rel="${rel}"`),
+    )
     setHeaderValue(this, 'link', existing ? `${existing}, ${parts.join(', ')}` : parts.join(', '))
     return this
   },
@@ -267,7 +323,7 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
     if (!st(this).headers.has('content-type')) {
       setHeaderValue(this, 'content-type', 'application/json; charset=utf-8')
     }
-    return this.send(JSON.stringify(body))
+    return this.send(stringifyJson(this.app, body))
   },
 
   send(this: ExpResponse, body?: unknown) {
@@ -334,9 +390,28 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
   redirect(this: ExpResponse, a: number | string, b?: string) {
     const status = typeof a === 'number' ? a : 302
     const url = typeof a === 'number' ? (b as string) : a
-    this.status(status)
+
     this.location(url)
-    return this.send('')
+    const address = this.get('location') as string
+
+    let body = ''
+    this.format({
+      text: () => {
+        body = `${statusText(status)}. Redirecting to ${address}`
+      },
+      html: () => {
+        body = `<p>${statusText(status)}. Redirecting to ${escapeHtml(address)}</p>`
+      },
+      default: () => {
+        body = ''
+      },
+    })
+
+    this.status(status)
+    setHeaderValue(this, 'content-length', String(encoder.encode(body).byteLength))
+    this.end(body)
+
+    return this
   },
 
   write(this: ExpResponse, chunk: unknown) {
@@ -375,8 +450,10 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
     this.set('x-content-type-options', 'nosniff')
     setHeaderValue(this, 'content-type', 'text/javascript; charset=utf-8')
 
-    const payload = escapeLineSeparators(JSON.stringify(body))
-    return this.send(`/**/ typeof ${safe} === 'function' && ${safe}(${payload ?? 'null'});`)
+    const json = stringifyJson(this.app, body)
+    // res.jsonp(undefined) calls the callback with no arguments, not literal "null"
+    const payload = json === undefined ? '' : escapeLineSeparators(json)
+    return this.send(`/**/ typeof ${safe} === 'function' && ${safe}(${payload});`)
   },
 
   cookie(this: ExpResponse, name: string, value: unknown, options: CookieOptions = {}) {
@@ -406,7 +483,9 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
   },
 
   clearCookie(this: ExpResponse, name: string, options: CookieOptions = {}) {
-    return this.cookie(name, '', { ...options, expires: new Date(1), maxAge: 0 })
+    const opts: CookieOptions = { path: '/', ...options, expires: new Date(1) }
+    delete opts.maxAge
+    return this.cookie(name, '', opts)
   },
 
   attachment(this: ExpResponse, filename?: string) {
@@ -419,14 +498,20 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
     const req = this.req
     const next = req?.next
     const keys = Object.keys(handlers).filter((k) => k !== 'default')
-    const chosen = keys.length > 0 ? req?.accepts(...keys) : false
-    const key = Array.isArray(chosen) ? chosen[0] : chosen
+    // A handler key may carry parameters ('text/plain; charset=utf-8'): negotiation
+    // matches on the bare type, so that's stripped off before it's offered up, and the
+    // stripped form is also what ends up in Content-Type / a 406's error.types.
+    const bareKeys = keys.map((k) => (k.split(';')[0] ?? k).trim())
+    const chosen = keys.length > 0 ? req?.accepts(...bareKeys) : false
+    const chosenValue = Array.isArray(chosen) ? chosen[0] : chosen
+    const idx = typeof chosenValue === 'string' ? bareKeys.indexOf(chosenValue) : -1
 
     this.vary('Accept')
 
-    if (typeof key === 'string' && handlers[key]) {
+    if (idx !== -1) {
+      const key = keys[idx] as string
       // The type goes on raw; send() adds the charset afterwards
-      setHeaderValue(this, 'content-type', normalizeType(key))
+      setHeaderValue(this, 'content-type', normalizeType(bareKeys[idx] as string))
       handlers[key](req as ExpRequest, this, next as (e?: unknown) => void)
     } else if (handlers.default) {
       handlers.default(req as ExpRequest, this, next as (e?: unknown) => void)
@@ -434,7 +519,7 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
       const err = Object.assign(new Error('Not Acceptable'), {
         status: 406,
         statusCode: 406,
-        types: keys.map((k) => normalizeType(k)),
+        types: bareKeys.map((k) => normalizeType(k)),
       })
       if (next) next(err)
       else throw err
@@ -652,22 +737,19 @@ function finish(res: ExpResponse, payload: Uint8Array): void {
   commitHead(res)
   s.phase = 'ended'
 
-  const noBody = res.statusCode === 204 || res.statusCode === 304 || res.req?.method === 'HEAD'
+  // A HEAD response still reports the headers a GET would have sent -- only the body
+  // bytes are withheld -- whereas 204/304 genuinely have neither a body nor these headers.
+  const suppressHeaders = res.statusCode === 204 || res.statusCode === 304
+  const noBody = suppressHeaders || res.req?.method === 'HEAD'
   const body = noBody || payload.byteLength === 0 ? null : payload
-  if (noBody) {
+  if (suppressHeaders) {
     s.headers.delete('content-type')
     s.headers.delete('content-length')
   } else {
     s.headers.set('content-length', String(payload.byteLength))
   }
 
-  s.resolve(
-    new Response(body as BodyInit | null, {
-      status: res.statusCode,
-      statusText: res.statusMessage || undefined,
-      headers: s.headers,
-    }),
-  )
+  s.resolve(buildResponse(body as BodyInit | null, res, s.headers))
   s.emitter.emit('finish')
 }
 
@@ -677,13 +759,26 @@ function startStreaming(res: ExpResponse): void {
   s.phase = 'streaming'
   const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>()
   s.writer = writable.getWriter()
-  s.resolve(
-    new Response(readable, {
-      status: res.statusCode,
-      statusText: res.statusMessage || undefined,
-      headers: s.headers,
-    }),
-  )
+  s.resolve(buildResponse(readable, res, s.headers))
+}
+
+/**
+ * The Fetch `Response` constructor rejects a status outside 200-599, but Express code sets
+ * things like `res.status(101)` freely. Out-of-range values are built with a placeholder
+ * and the real status is stashed for the Node adapter to substitute back in.
+ */
+function buildResponse(body: BodyInit | null, res: ExpResponse, headers: Headers): Response {
+  const code = res.statusCode
+  const inRange = Number.isInteger(code) && code >= 200 && code <= 599
+  const response = new Response(body, {
+    status: inRange ? code : 200,
+    statusText: inRange ? res.statusMessage || undefined : undefined,
+    headers,
+  })
+  if (!inRange) {
+    Object.defineProperty(response, kActualStatus, { value: code, configurable: true })
+  }
+  return response
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -711,6 +806,7 @@ export function createResponse({
       compat,
       phase: 'idle',
       headers: new Headers(),
+      rawValues: new Map(),
       chunks: [],
       emitter: new MiniEmitter(),
       resolve,
@@ -770,9 +866,32 @@ function statusText(code: number): string {
  */
 const LINE_SEPARATORS = /[\u2028\u2029]/g
 
-function escapeLineSeparators(json: string | undefined): string | undefined {
-  if (json === undefined) return undefined
+function escapeLineSeparators(json: string): string {
   return json.replace(LINE_SEPARATORS, (c) => (c === '\u2028' ? '\\u2028' : '\\u2029'))
+}
+
+/** `app.set('json replacer'/'json spaces'/'json escape', ...)`, honored by res.json()/jsonp(). */
+function stringifyJson(app: unknown, value: unknown): string | undefined {
+  const get = (app as { get?: (key: string) => unknown } | undefined)?.get
+  const replacer = get?.('json replacer') as
+    | ((this: unknown, key: string, value: unknown) => unknown)
+    | undefined
+  const spaces = get?.('json spaces') as string | number | undefined
+  const shouldEscape = get?.('json escape')
+
+  const json =
+    replacer || spaces
+      ? JSON.stringify(value, replacer as (key: string, value: unknown) => unknown, spaces)
+      : JSON.stringify(value)
+
+  if (shouldEscape && typeof json === 'string') {
+    return json.replace(/[<>&]/g, (c) => {
+      if (c === '<') return '\\u003c'
+      if (c === '>') return '\\u003e'
+      return '\\u0026'
+    })
+  }
+  return json
 }
 
 function extnameOf(filename: string): string {

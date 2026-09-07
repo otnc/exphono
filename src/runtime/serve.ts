@@ -5,6 +5,7 @@
  */
 
 import { report } from '../diagnostics.js'
+import { kActualStatus, kNodeStream, kRemoteAddress } from '../object-model.js'
 
 export interface ServeTarget {
   fetch(request: Request, env?: unknown, ctx?: unknown): Promise<Response>
@@ -164,6 +165,15 @@ async function toFetchRequest(req: NodeIncomingMessage): Promise<Request> {
       enumerable: true,
     })
   }
+  if (req.socket?.remoteAddress) {
+    Object.defineProperty(request, kRemoteAddress, {
+      value: req.socket.remoteAddress,
+      configurable: true,
+    })
+  }
+  // Kept even for a bodyless method's Request (which cannot carry `init.body` at all) so
+  // connect-style middleware can still read the raw bytes via `req.on('data', ...)`.
+  Object.defineProperty(request, kNodeStream, { value: req, configurable: true })
   return request
 }
 
@@ -175,7 +185,8 @@ async function writeFetchResponse(response: Response, res: NodeServerResponse): 
   const setCookie = response.headers.getSetCookie?.() ?? []
   if (setCookie.length > 0) headers['set-cookie'] = setCookie
 
-  res.writeHead(response.status, headers)
+  const actualStatus = (response as unknown as Record<symbol, number | undefined>)[kActualStatus]
+  res.writeHead(actualStatus ?? response.status, headers)
 
   if (!response.body) {
     res.end()

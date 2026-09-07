@@ -69,6 +69,14 @@ function compileString(path: string, opts: MatcherOptions): Compiled {
   while (i < path.length) {
     const ch = path[i]
 
+    if (ch === '\\' && i + 1 < path.length) {
+      // A backslash escapes the next character as a literal, e.g. '\(' for a literal '('
+      // that would otherwise need special handling (path-to-regexp's own escape syntax).
+      source += (path[i + 1] as string).replace(ESCAPE_RE, '\\$&')
+      i += 2
+      continue
+    }
+
     if (ch === ':') {
       // :name, or :name? under compat=4
       let j = i + 1
@@ -161,6 +169,11 @@ class CompiledMatcher implements PathMatcher {
 
       const m = c.regexp.exec(path)
       if (!m) continue
+      // A user-supplied RegExp path isn't anchored to the start (unlike a compiled string
+      // pattern, which always gets a leading `^`), so it can match midway through the
+      // path. Express only accepts a match starting at index 0 — the mount rewrite that
+      // follows assumes the matched text is a genuine prefix of the path.
+      if (m.index !== 0) continue
       const params: Record<string, unknown> = {}
 
       c.keys.forEach((key, idx) => {

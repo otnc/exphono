@@ -26,8 +26,37 @@ import {
 import type { PathSpec } from './router/matcher.js'
 import { mixinEmitter } from './runtime/event-emitter.js'
 import { handleNodeRequest, serve } from './runtime/serve.js'
+import { strongEtag, weakBodyEtag } from './utils/etag.js'
+import { compileTrust } from './utils/trust-proxy.js'
 import type { EngineFn } from './view/index.js'
 import { View } from './view/index.js'
+
+/** `app.set('etag', ...)`, compiled once into the function `res.send()` actually calls. */
+function compileETag(val: unknown): unknown {
+  if (typeof val === 'function') return val
+  switch (val) {
+    case true:
+    case 'weak':
+      return weakBodyEtag
+    case false:
+      return undefined
+    case 'strong':
+      return strongEtag
+    default:
+      throw new TypeError(`unknown value for etag function: ${String(val)}`)
+  }
+}
+
+/** `app.set('query parser', ...)`: `req.query`'s getter reads the raw setting itself. */
+function isValidQueryParser(val: unknown): boolean {
+  return (
+    typeof val === 'function' ||
+    val === true ||
+    val === 'simple' ||
+    val === false ||
+    val === 'extended'
+  )
+}
 
 export interface ExpHonoOptions {
   strict?: boolean
@@ -157,6 +186,7 @@ export function createApplication(compatDefault: CompatMode = '5'): Application 
 
   app.settings = settings
   app.locals = Object.create(null) as Record<string, unknown>
+  app.locals.settings = settings
   app.engines = Object.create(null) as Record<string, unknown>
   app.cache = Object.create(null) as Record<string, unknown>
   app.mountpath = '/'
@@ -167,11 +197,21 @@ export function createApplication(compatDefault: CompatMode = '5'): Application 
   app.request = createAppProto(requestProto, app)
   app.response = createAppProto(responseProto, app)
 
-  const router: RouterInstance = createRouter({
-    compat,
-    caseSensitive: false,
-    strict: false,
-  })
+  // Lazily created on first use, matching Express: this lets `app.enable('strict
+  // routing')` (etc.) called before any route is registered still take effect, since the
+  // matcher for each route is compiled once, up front, from whatever these were at the
+  // time.
+  let router: RouterInstance | undefined
+  const getRouter = (): RouterInstance => {
+    if (!router) {
+      router = createRouter({
+        compat,
+        caseSensitive: app.enabled('case sensitive routing'),
+        strict: app.enabled('strict routing'),
+      })
+    }
+    return router
+  }
 
   // Settings
   Object.defineProperty(app, 'set', {
@@ -183,6 +223,13 @@ export function createApplication(compatDefault: CompatMode = '5'): Application 
       settings[key] = value
       if (key === 'exphono strict') strict = Boolean(value)
       if (key === 'exphono compat') compat = String(value) as CompatMode
+      if (key === 'etag') settings['etag fn'] = compileETag(value)
+      if (key === 'trust proxy') {
+        settings['trust proxy fn'] = compileTrust(value as Parameters<typeof compileTrust>[0])
+      }
+      if (key === 'query parser' && !isValidQueryParser(value)) {
+        throw new TypeError(`unknown value for query parser function: ${String(value)}`)
+      }
       return app
     },
   })
@@ -193,10 +240,9 @@ export function createApplication(compatDefault: CompatMode = '5'): Application 
     // One argument reads a setting, even when it looks like a path
     value(path: string, ...handlers: RequestHandler[]) {
       if (handlers.length === 0) return settings[path]
-      ;(router as unknown as Record<string, (p: PathSpec, ...h: RequestHandler[]) => unknown>).get(
-        path,
-        ...handlers,
-      )
+      ;(
+        getRouter() as unknown as Record<string, (p: PathSpec, ...h: RequestHandler[]) => unknown>
+      ).get(path, ...handlers)
       return app
     },
   })
@@ -231,17 +277,17 @@ export function createApplication(compatDefault: CompatMode = '5'): Application 
 
       const sub = h as Partial<Application>
       if (sub.handle && sub.set && sub.settings) {
-        mountSubApp(app, router, path, h as Application)
+        mountSubApp(app, getRouter(), path, h as Application)
         continue
       }
-      router.use(path, h as RequestHandler)
+      getRouter().use(path, h as RequestHandler)
     }
     return app
   }
 
-  app.route = (path: string) => router.route(path)
+  app.route = (path: string) => getRouter().route(path)
   app.param = (name: string, fn: ParamCallback) => {
-    router.param(name, fn)
+    getRouter().param(name, fn)
     return app
   }
 
@@ -254,9 +300,9 @@ export function createApplication(compatDefault: CompatMode = '5'): Application 
       configurable: true,
       enumerable: false,
       value(path: PathSpec, ...handlers: RequestHandler[]) {
-        ;(router as unknown as Record<string, (p: PathSpec, ...h: RequestHandler[]) => unknown>)[
-          verb
-        ](path, ...handlers)
+        ;(
+          getRouter() as unknown as Record<string, (p: PathSpec, ...h: RequestHandler[]) => unknown>
+        )[verb](path, ...handlers)
         return app
       },
     })
@@ -266,7 +312,7 @@ export function createApplication(compatDefault: CompatMode = '5'): Application 
     writable: true,
     configurable: true,
     value(path: PathSpec, ...handlers: RequestHandler[]) {
-      router.all(path, ...handlers)
+      getRouter().all(path, ...handlers)
       return app
     },
   })
@@ -279,7 +325,7 @@ export function createApplication(compatDefault: CompatMode = '5'): Application 
     value(path: PathSpec, ...handlers: RequestHandler[]) {
       if (compat !== '4') report('EXPHONO_E008', { strict, context: 'app.del' })
       ;(
-        router as unknown as Record<string, (p: PathSpec, ...h: RequestHandler[]) => unknown>
+        getRouter() as unknown as Record<string, (p: PathSpec, ...h: RequestHandler[]) => unknown>
       ).delete(path, ...handlers)
       return app
     },
@@ -354,14 +400,31 @@ export function createApplication(compatDefault: CompatMode = '5'): Application 
         return
       }
 
-      const ViewCtor = app.get('view') as typeof View
-      ViewCtor.create(name, {
+      // `app.set('view', CustomView)` hands over an ordinary constructor, following
+      // Express's own convention -- exphono's own View is only special in needing an
+      // async factory (loading an engine module and stat-ing candidate paths both await),
+      // so that path is used when present and a plain `new` covers everyone else's view.
+      const ViewCtor = app.get('view') as typeof View & {
+        create?: (name: string, options: unknown) => Promise<View>
+      }
+      const viewOptions = {
         defaultEngine: app.get('view engine') as string | undefined,
         root: app.get('views') as string | string[] | undefined,
         engines: app.engines as Record<string, EngineFn>,
-      })
-        .then(finish)
-        .catch(done)
+      }
+
+      const viewPromise =
+        typeof ViewCtor.create === 'function'
+          ? ViewCtor.create(name, viewOptions)
+          : Promise.resolve().then(
+              () =>
+                new (ViewCtor as unknown as new (name: string, options: unknown) => View)(
+                  name,
+                  viewOptions,
+                ),
+            )
+
+      viewPromise.then(finish).catch(done)
     },
   })
 
@@ -369,18 +432,20 @@ export function createApplication(compatDefault: CompatMode = '5'): Application 
     writable: true,
     configurable: true,
     enumerable: false,
-    value: () => {},
+    value: () => {
+      getRouter()
+    },
   })
   Object.defineProperty(app, 'router', {
     configurable: true,
-    get: () => router,
+    get: () => getRouter(),
   })
 
   // Dispatch
   app.handle = (req: ExpRequest, res: ExpResponse, next?: NextFunction) => {
     setPromiseErrorForwarding(compat === '5')
     const done = next ?? ((err?: unknown) => finalHandler(err, req, res, String(settings.env)))
-    router.handle(req, res, done)
+    getRouter().handle(req, res, done)
   }
 
   // Hono bridge
@@ -450,6 +515,19 @@ function mountSubApp(
 ): void {
   child.mountpath = typeof path === 'string' ? path : '/'
   child.parent = parent
+
+  // A setting the sub-app never touched falls through to the parent's, the same way
+  // Express does it by chaining the settings objects' prototypes. `trust proxy` is set
+  // explicitly during init rather than left absent, so it's still at its default (false)
+  // even on a sub-app that never touched it -- drop it and its compiled function here so
+  // it falls through too, rather than shadowing the parent's.
+  const childSettings = child.settings as Record<string, unknown>
+  const parentSettings = parent.settings as Record<string, unknown>
+  if (childSettings['trust proxy'] === false) {
+    delete childSettings['trust proxy']
+    delete childSettings['trust proxy fn']
+  }
+  Object.setPrototypeOf(childSettings, parentSettings)
 
   router.use(path, (req: ExpRequest, res: ExpResponse, next: NextFunction) => {
     const origReq = Object.getPrototypeOf(req)
