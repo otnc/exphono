@@ -140,6 +140,7 @@ export class Route {
    */
   _handles_method(method: string): boolean {
     if (this.methods._all) return true
+    if (!method) return false
     const m = method.toLowerCase()
     return this.methods[m === 'head' && !this.methods.head ? 'get' : m] === true
   }
@@ -175,7 +176,7 @@ export class Route {
       return
     }
 
-    const method = req.method.toLowerCase()
+    const method = (req.method ?? '').toLowerCase()
     req.route = this
 
     let idx = 0
@@ -353,15 +354,24 @@ export function createRouter(options: RouterOptions = {}): RouterInstance {
   router.handle = (req: ExpRequest, res: ExpResponse, done: NextFunction) => {
     let idx = 0
     let removed = ''
+    let slashAdded = false
+    let sync = 0
+    const protohost = getProtohost(req.url ?? '') ?? ''
+    const paramCalled: Record<string, ParamCalled> = {}
     const parentUrl = req.baseUrl
     const parentParams = req.params
+    req.originalUrl = req.originalUrl || req.url
 
     // A router must leave req.url, baseUrl and params exactly as it found them
     const restore = (): void => {
       req.params = parentParams
+      if (slashAdded) {
+        setRequestUrl(req, req.url.slice(1))
+        slashAdded = false
+      }
       if (removed.length === 0) return
       req.baseUrl = parentUrl
-      setRequestUrl(req, removed + req.url)
+      setRequestUrl(req, protohost + removed + req.url.slice(protohost.length))
       removed = ''
     }
 
@@ -379,32 +389,45 @@ export function createRouter(options: RouterOptions = {}): RouterInstance {
 
       restore()
 
-      const layer = router.stack[idx++]
-      if (!layer) {
+      // A pathologically long chain of synchronous handlers would otherwise blow the
+      // call stack, since each next() call recurses straight into the layer it found. This
+      // only guards that chain — the scan below for the next matching layer runs in a
+      // plain loop within a single call, so skipping past many non-matching layers never
+      // grows the stack and never needs to trip this. A microtask would starve the event
+      // loop instead of yielding to it (this chain would requeue itself forever and never
+      // let a macrotask like a test's own timeout run), so this schedules a real macrotask.
+      if (++sync > 100) {
+        setTimeout(() => next(err), 0)
+        return
+      }
+
+      const path = getPathname(req.url)
+      if (path == null) {
         req.params = parentParams
         done(err)
         return
       }
 
-      const path = getPathname(req.url)
-      if (!layer.match(path)) {
-        next(err)
-        return
-      }
-      if (layer.malformed) {
-        next(layer.malformed)
-        return
+      // Scan forward for a layer that matches the path, handles the method in play, and
+      // is the right kind (error handler vs. not) for whether an error is in flight.
+      let layer: Layer | undefined
+      let layerErr = err
+      while (idx < router.stack.length) {
+        const candidate = router.stack[idx++] as Layer
+        if (!candidate.match(path)) continue
+        if (candidate.malformed) {
+          layerErr = candidate.malformed
+          continue
+        }
+        if (candidate.route && !candidate.route._handles_method(req.method)) continue
+        if (Boolean(layerErr) !== candidate.isErrorHandler) continue
+        layer = candidate
+        break
       }
 
-      // Skip routes that do not handle this method
-      if (layer.route && !layer.route._handles_method(req.method)) {
-        next(err)
-        return
-      }
-
-      // While an error is in flight only error handlers run, and vice versa
-      if (Boolean(err) !== layer.isErrorHandler) {
-        next(err)
+      if (!layer) {
+        req.params = parentParams
+        done(layerErr)
         return
       }
 
@@ -412,18 +435,37 @@ export function createRouter(options: RouterOptions = {}): RouterInstance {
       req.next = next
       req.params = opts.mergeParams ? mergeParams(layer.params, parentParams) : layer.params
 
+      const matchedLayer = layer
+      const dispatchErr = layerErr
+      // Captured now rather than read from the layer inside proceed(): a param callback
+      // can complete asynchronously (e.g. via setTimeout), and in the meantime a second,
+      // concurrent request can run this same shared Layer instance's match() again,
+      // overwriting matchedPath before this request's proceed() gets to it.
+      const matchedPath = layer.matchedPath
       const proceed = (): void => {
-        if (layer.isMount && layer.matchedPath && layer.matchedPath !== '/') {
+        if (matchedLayer.isMount && matchedPath && matchedPath !== '/') {
           // Strip the matched prefix before delegating
-          removed = layer.matchedPath.replace(/\/$/, '')
+          removed = matchedPath.replace(/\/$/, '')
           req.baseUrl = parentUrl + removed
-          setRequestUrl(req, req.url.slice(removed.length) || '/')
+          const rest = req.url.slice(protohost.length + removed.length)
+          if (!protohost && rest[0] !== '/') {
+            setRequestUrl(req, `${protohost}/${rest}`)
+            slashAdded = true
+          } else {
+            setRequestUrl(req, protohost + rest)
+          }
         }
-        if (err) layer.handle_error(err, req, res, next)
-        else layer.handle_request(req, res, next)
+        if (dispatchErr) matchedLayer.handle_error(dispatchErr, req, res, next)
+        else matchedLayer.handle_request(req, res, next)
+        // Reached only once the handler above — and everything it called synchronously,
+        // including any nested next() calls — has fully returned. On a deep synchronous
+        // chain that unwinds one frame at a time, back through every enclosing proceed(),
+        // resetting sync here in each of them by the time the deferred continuation from
+        // the `sync > 100` branch actually runs.
+        sync = 0
       }
 
-      processParams(router, layer, req, res, proceed, next)
+      processParams(router, matchedLayer, paramCalled, req, res, proceed, next)
     }
 
     next()
@@ -432,54 +474,112 @@ export function createRouter(options: RouterOptions = {}): RouterInstance {
   return router
 }
 
-function getPathname(url: string): string {
-  const q = url.indexOf('?')
-  return q === -1 ? url : url.slice(0, q)
+/** `undefined` for a missing or blank URL, matching `parseUrl(req).pathname` returning `null`. */
+function getPathname(url: string | undefined): string | undefined {
+  if (!url) return undefined
+  try {
+    return new URL(url, 'http://exphono.invalid').pathname
+  } catch {
+    return undefined
+  }
 }
 
-/** Runs the `app.param()` callbacks for this layer's parameters. */
+/**
+ * The literal `scheme://host` prefix of a full URL sent as the request-target — real, if
+ * unusual, since HTTP allows it. Mount trimming rewrites `req.url` from the pathname
+ * onward and needs this preserved verbatim rather than reparsed.
+ */
+function getProtohost(url: string): string | undefined {
+  if (url.length === 0 || url[0] === '/') return undefined
+  const searchIndex = url.indexOf('?')
+  const pathLength = searchIndex === -1 ? url.length : searchIndex
+  const fqdnIndex = url.slice(0, pathLength).indexOf('://')
+  if (fqdnIndex === -1) return undefined
+  const slashIndex = url.indexOf('/', fqdnIndex + 3)
+  return slashIndex === -1 ? url.slice(0, pathLength) : url.slice(0, slashIndex)
+}
+
+interface ParamCalled {
+  error: unknown
+  match: string
+  value: string
+}
+
+/**
+ * Runs the `app.param()` callbacks for this layer's parameters.
+ *
+ * `called` is shared across the whole `router.handle()` call: a parameter matched by more
+ * than one layer (e.g. the same `:id` on both a param-matching middleware and the route
+ * itself) only runs its callbacks once per request, as long as the value hasn't changed.
+ */
 function processParams(
   router: RouterInstance,
   layer: Layer,
+  called: Record<string, ParamCalled>,
   req: ExpRequest,
   res: ExpResponse,
   done: () => void,
   onError: NextFunction,
 ): void {
   const names = Object.keys(layer.params)
-  if (names.length === 0) {
-    done()
-    return
-  }
-
-  const pending: [string, ParamCallback][] = []
-  for (const name of names) {
-    for (const fn of router.params[name] ?? []) pending.push([name, fn])
-  }
-  if (pending.length === 0) {
-    done()
-    return
-  }
 
   let i = 0
-  const step = (err?: unknown): void => {
+  const param = (err?: unknown): void => {
     if (err) {
       onError(err)
       return
     }
-    const entry = pending[i++]
-    if (!entry) {
+
+    const name = names[i++]
+    if (name === undefined) {
       done()
       return
     }
-    const [name, fn] = entry
-    try {
-      fn(req, res, step, layer.params[name] as string, name)
-    } catch (e) {
-      onError(e)
+
+    const value = layer.params[name] as string
+    const callbacks = router.params[name]
+    if (value === undefined || !callbacks || callbacks.length === 0) {
+      param()
+      return
     }
+
+    const prior = called[name]
+    if (
+      prior &&
+      (prior.match === value || (prior.error !== undefined && prior.error !== ROUTE_SIGNAL))
+    ) {
+      req.params[name] = prior.value
+      param(prior.error)
+      return
+    }
+
+    const record: ParamCalled = { error: undefined, match: value, value }
+    called[name] = record
+
+    let j = 0
+    const runCallback = (err2?: unknown): void => {
+      record.value = req.params[name] as string
+      if (err2) {
+        record.error = err2
+        onError(err2)
+        return
+      }
+      const fn = callbacks[j++]
+      if (!fn) {
+        param()
+        return
+      }
+      try {
+        fn(req, res, runCallback, value, name)
+      } catch (e) {
+        record.error = e
+        onError(e)
+      }
+    }
+    runCallback()
   }
-  step()
+
+  param()
 }
 
 /**
