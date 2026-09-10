@@ -4,7 +4,12 @@
  * The compat mode is read through a callback so the `exphono/v4` and `exphono/v5` subpaths can each pin their own without sharing mutable state with the main entry.
  */
 
-import { type Application, createApplication, type ExpHonoOptions } from './application.js'
+import {
+  type Application,
+  applicationProto,
+  createApplication,
+  type ExpHonoOptions,
+} from './application.js'
 import { report } from './diagnostics.js'
 import type { CompatMode } from './inventory.js'
 import { json, raw, text, urlencoded } from './middleware/body.js'
@@ -96,7 +101,7 @@ export function buildFactory({ getCompat, setCompat }: FactoryOptions): ExpressF
     })
   }
 
-  attach('application', {})
+  attach('application', applicationProto)
   attach('request', requestProto)
   attach('response', responseProto)
   attach('Router', createRouter)
