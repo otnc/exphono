@@ -163,6 +163,35 @@ const DEFAULT_SETTINGS_V5: Record<string, unknown> = {
   'query parser': 'simple',
 }
 
+/**
+ * The prototype every app is `setPrototypeOf`'d onto -- `express.application`, matching
+ * Express's own mixin point. Each app still gets its own `set`/`get`/etc. as own
+ * properties (they close over that app's settings and router), which shadow this; a
+ * property added here only takes effect where an app doesn't already have one of its
+ * own, same as `express.request` / `express.response`.
+ */
+export const applicationProto: Record<string, unknown> = {
+  set(this: Application, key: string, ...rest: unknown[]): unknown {
+    const settings = this.settings as Record<string, unknown>
+    if (rest.length === 0) return settings[key]
+    const value = rest[0]
+    settings[key] = value
+    if (key === 'etag') settings['etag fn'] = compileETag(value)
+    if (key === 'trust proxy') {
+      settings['trust proxy fn'] = compileTrust(value as Parameters<typeof compileTrust>[0])
+    }
+    if (key === 'query parser' && !isValidQueryParser(value)) {
+      throw new TypeError(`unknown value for query parser function: ${String(value)}`)
+    }
+    return this
+  },
+}
+
+// `app` is a function (it has to be, for `http.createServer(app)` and mounting to work),
+// so its chain must still reach Function.prototype -- Node's EventEmitter invokes
+// listeners via `.apply()`, which a chain ending at Object.prototype wouldn't have.
+Object.setPrototypeOf(applicationProto, Function.prototype)
+
 export function createApplication(compatDefault: CompatMode = '5'): Application {
   const app = ((req: ExpRequest, res: ExpResponse, next: NextFunction) => {
     // http.createServer(app) and supertest call this with real Node objects
@@ -173,6 +202,7 @@ export function createApplication(compatDefault: CompatMode = '5'): Application 
     app.handle(req, res, next)
   }) as Application
 
+  Object.setPrototypeOf(app, applicationProto)
   mixinEmitter(app)
 
   let compat: CompatMode = compatDefault
@@ -528,6 +558,14 @@ function mountSubApp(
     delete childSettings['trust proxy fn']
   }
   Object.setPrototypeOf(childSettings, parentSettings)
+
+  // A property added to the parent's per-app request/response prototype after mounting
+  // (`app1.request.foo = ...`) is still visible from the sub-app, the same way Express
+  // chains `this.request`/`this.response` onto the parent's in its own 'mount' handler.
+  // A sub-app's own override still shadows it, since that lands as an own property here.
+  Object.setPrototypeOf(child.request, parent.request)
+  Object.setPrototypeOf(child.response, parent.response)
+  Object.setPrototypeOf(child.engines, parent.engines)
 
   router.use(path, (req: ExpRequest, res: ExpResponse, next: NextFunction) => {
     const origReq = Object.getPrototypeOf(req)
