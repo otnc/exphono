@@ -119,13 +119,16 @@
     "express": "^5.2.1",
     "express4": "npm:express@^4.22.2",
     "hono": "^4.13.7",
+    "methods": "^1.1.2",
     "miniflare": "^4.20260730.0",
     "mocha": "^12.0.0",
     "on-finished": "^2.4.1",
     "rolldown": "^1.2.7",
+    "safe-buffer": "^5.2.1",
     "supertest": "^7.2.2",
     "tsdown": "^0.23.0",
     "typescript": "^6.0.3",
+    "utils-merge": "^1.0.1",
     "vitest": "^5.0.0"
   },
   "pnpm": {
