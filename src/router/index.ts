@@ -183,6 +183,7 @@ export class Route {
     req.route = this
 
     let idx = 0
+    let sync = 0
     const next = (err?: unknown): void => {
       // next('route') skips the rest of this route
       if (err === ROUTE_SIGNAL) {
@@ -191,6 +192,14 @@ export class Route {
       }
       if (err === ROUTER_SIGNAL) {
         done(err)
+        return
+      }
+
+      // Same guard as Router.handle: a long chain of synchronous handlers recurses
+      // straight into the next layer on every next() call, so without this a large
+      // enough stack of handlers blows the call stack. See the matching comment there.
+      if (++sync > 100) {
+        setTimeout(() => next(err), 0)
         return
       }
 
@@ -208,6 +217,9 @@ export class Route {
 
       if (err) layer.handle_error(err, req, res, next)
       else layer.handle_request(req, res, next)
+      // Reached once the handler above and everything it called synchronously has
+      // returned, unwinding one frame at a time back through every enclosing next().
+      sync = 0
     }
 
     next()
