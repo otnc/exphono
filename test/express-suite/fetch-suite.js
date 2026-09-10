@@ -78,7 +78,7 @@ export function prepare(version) {
     writeFileSync(
       target,
       readFileSync(file, 'utf8')
-        .replace(EXPRESS_ROOT, "require('exphono')")
+        .replace(EXPRESS_ROOT, `require('exphono${version === 4 ? '/v4' : ''}')`)
         .replace(EXPRESS_UTILS, `require('${utilsPath}')`),
     )
   }
