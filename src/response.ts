@@ -248,7 +248,7 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
   },
 
   type(this: ExpResponse, t: string) {
-    const value = t.includes('/') ? t : lookupMimeType(t)
+    const value = t.includes('/') ? t : lookupMimeType(t, st(this).compat)
     setHeaderValue(this, 'content-type', withCharset(value))
     return this
   },
@@ -286,7 +286,9 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
   },
 
   location(this: ExpResponse, url: string) {
-    setHeaderValue(this, 'location', encodeUrl(url))
+    // Express 5 dropped this alias entirely; a literal 'back' just gets sent as-is there.
+    const loc = url === 'back' && st(this).compat === '4' ? this.req?.get('Referrer') || '/' : url
+    setHeaderValue(this, 'location', encodeUrl(loc))
     return this
   },
 
