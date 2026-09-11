@@ -34,6 +34,9 @@ export interface SendOptions {
   lastModified?: boolean
   etag?: boolean
   acceptRanges?: boolean
+  /** Byte offsets bounding what's served, independent of any Range request header. */
+  start?: number
+  end?: number
   /** Called once the file to serve is known, before headers are written. Express's `express.static({ setHeaders })`. */
   setHeaders?: (res: ExpResponse, path: string, stat: FileStat) => void
   /** A plain header map applied unconditionally on success. Express's `res.sendFile`/`res.download` `{ headers }`. */
@@ -317,6 +320,14 @@ export async function sendFile(
     const { start, end } = ranges[0] as { start: number; end: number }
     res.status(206)
     res.set('content-range', `bytes ${start}-${end}/${stat.size}`)
+    res.set('content-length', String(end - start + 1))
+    await pipe(res, await readFileStream(file, { start, end }), req.method === 'HEAD')
+    return
+  }
+
+  if (options.start !== undefined || options.end !== undefined) {
+    const start = options.start ?? 0
+    const end = options.end ?? stat.size - 1
     res.set('content-length', String(end - start + 1))
     await pipe(res, await readFileStream(file, { start, end }), req.method === 'HEAD')
     return
