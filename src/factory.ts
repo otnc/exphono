@@ -12,7 +12,7 @@ import {
 } from './application.js'
 import { report } from './diagnostics.js'
 import type { CompatMode } from './inventory.js'
-import { json, raw, text, urlencoded } from './middleware/body.js'
+import { type BodyOptions, json, raw, text, urlencoded } from './middleware/body.js'
 import { serveStatic } from './middleware/static.js'
 import { type ExpRequest, requestProto } from './request.js'
 import { type ExpResponse, responseProto } from './response.js'
@@ -104,12 +104,22 @@ export function buildFactory({ getCompat, setCompat }: FactoryOptions): ExpressF
   attach('application', applicationProto)
   attach('request', requestProto)
   attach('response', responseProto)
-  attach('Router', createRouter)
+  // A standalone `express.Router()` (no `app` involved) still needs to know whether it
+  // came from `exphono`, `exphono/v4` or `exphono/v5` -- real Express 4 and 5 ship
+  // entirely separate router implementations, so there's no ambiguity there to begin
+  // with. Explicit `{ compat }` in the call still wins. A plain `function`, not an arrow,
+  // since `new express.Router()` has to keep working (arrows aren't constructible).
+  attach('Router', function Router(options?: RouterOptions) {
+    return createRouter({ compat: getCompat(), ...options })
+  })
   attach('Route', RouteClass)
-  attach('json', json)
-  attach('raw', raw)
-  attach('text', text)
-  attach('urlencoded', urlencoded)
+  // Same reasoning as Router() above: express.json()/raw()/text()/urlencoded() are also
+  // usable standalone, with no app to read compat from, but their body-parser convention
+  // differs between Express 4 and 5 (see makeParser() in body.ts).
+  attach('json', (options?: BodyOptions) => json({ compat: getCompat(), ...options }))
+  attach('raw', (options?: BodyOptions) => raw({ compat: getCompat(), ...options }))
+  attach('text', (options?: BodyOptions) => text({ compat: getCompat(), ...options }))
+  attach('urlencoded', (options?: BodyOptions) => urlencoded({ compat: getCompat(), ...options }))
   attach('static', serveStatic)
   attach('query', query)
   attach('configure', configure)

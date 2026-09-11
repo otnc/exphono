@@ -9,6 +9,7 @@
 import { type CompatMode, HTTP_METHODS, type HttpMethod } from '../inventory.js'
 import { type ExpRequest, setRequestUrl } from '../request.js'
 import type { ExpResponse } from '../response.js'
+import { describeType } from '../utils/type-name.js'
 import { compilePath, MATCH_ALL, type PathMatcher, type PathSpec } from './matcher.js'
 
 export type NextFunction = (err?: unknown) => void
@@ -131,9 +132,19 @@ export class Route {
   path: string
   stack: Layer[] = []
   methods: Record<string, boolean> = {}
+  /**
+   * Express 4's own `Route` and the `router` package Express 5 uses word a bad-handler
+   * TypeError differently (v4: "Route.get() requires a callback function but got a
+   * Number"; v5: the plain "argument handler must be a function"). Real Express ships two
+   * separate implementations; exphono shares one `Route` class across both compat modes,
+   * so it needs to know which wording to use. Defaults to '5' so `new Route(path)`
+   * constructed directly (no router involved) matches Express 5, same as the class itself.
+   */
+  compat: CompatMode
 
-  constructor(path: string) {
+  constructor(path: string, compat: CompatMode = '5') {
     this.path = path
+    this.compat = compat
   }
 
   /**
@@ -164,7 +175,13 @@ export class Route {
 
   all(...handlers: unknown[]): this {
     for (const h of handlers.flat(Number.POSITIVE_INFINITY)) {
-      if (typeof h !== 'function') throw new TypeError('argument handler must be a function')
+      if (typeof h !== 'function') {
+        throw new TypeError(
+          this.compat === '4'
+            ? `Route.all() requires a callback function but got a ${Object.prototype.toString.call(h)}`
+            : 'argument handler must be a function',
+        )
+      }
       this.stack.push(new Layer('/', h as RequestHandler, { isMount: false, matcher: MATCH_ALL }))
     }
     this.methods._all = true
@@ -229,7 +246,13 @@ for (const verb of HTTP_METHODS) {
     enumerable: false,
     value(this: Route, ...handlers: unknown[]) {
       for (const h of handlers.flat(Number.POSITIVE_INFINITY)) {
-        if (typeof h !== 'function') throw new TypeError('argument handler must be a function')
+        if (typeof h !== 'function') {
+          throw new TypeError(
+            this.compat === '4'
+              ? `Route.${verb}() requires a callback function but got a ${Object.prototype.toString.call(h)}`
+              : 'argument handler must be a function',
+          )
+        }
         const layer = new Layer('/', h as RequestHandler, {
           isMount: false,
           matcher: MATCH_ALL,
@@ -310,9 +333,19 @@ export function createRouter(options: RouterOptions = {}): RouterInstance {
 
   router.use = (...args: unknown[]) => {
     const { path, handlers } = splitPathAndHandlers(args)
-    if (handlers.length === 0) throw new TypeError('argument handler is required')
+    if (handlers.length === 0) {
+      throw new TypeError(
+        opts.compat === '4' ? 'Router.use() requires a middleware function' : 'argument handler is required',
+      )
+    }
     for (const h of handlers) {
-      if (typeof h !== 'function') throw new TypeError('argument handler must be a function')
+      if (typeof h !== 'function') {
+        throw new TypeError(
+          opts.compat === '4'
+            ? `Router.use() requires a middleware function but got a ${describeType(h)}`
+            : 'argument handler must be a function',
+        )
+      }
       router.stack.push(
         new Layer(path, h as Handler, { isMount: true, matcher: matcherFor(path, false) }),
       )
@@ -321,7 +354,7 @@ export function createRouter(options: RouterOptions = {}): RouterInstance {
   }
 
   router.route = (path: string) => {
-    const route = new Route(path)
+    const route = new Route(path, opts.compat)
     const dispatch: RequestHandler = (req, res, next) => {
       route.dispatch(req, res, next)
     }

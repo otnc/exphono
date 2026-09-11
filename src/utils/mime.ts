@@ -49,11 +49,17 @@ export function lookupMimeType(ext: string): string {
   return MIME[bare.toLowerCase()] ?? 'application/octet-stream'
 }
 
-/** Adds `charset=utf-8` to the types that need it. */
-export function withCharset(type: string): string {
+/**
+ * Adds a charset to the types that need one -- lowercase `utf-8` under Express 5's mime-db,
+ * uppercase `UTF-8` under Express 4's older one. Only affects types resolved through this
+ * lookup (`res.type()`, and `express.static`/`res.sendFile`/`res.download` by extension);
+ * an explicit `charset=` already on the type, or one hardcoded elsewhere (`res.json()`'s),
+ * is untouched.
+ */
+export function withCharset(type: string, compat: '4' | '5' = '5'): string {
   if (type.includes('charset')) return type
   if (/^text\//.test(type) || type === 'application/json' || type === 'image/svg+xml') {
-    return `${type}; charset=utf-8`
+    return `${type}; charset=${compat === '4' ? 'UTF-8' : 'utf-8'}`
   }
   return type
 }

@@ -218,7 +218,7 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
     }
     if (field.toLowerCase() === 'content-type') {
       if (Array.isArray(value)) throw new TypeError('Content-Type cannot be set to an Array')
-      setHeaderValue(this, field, withCharset(String(value)))
+      setHeaderValue(this, field, withCharset(String(value), st(this).compat))
       return this
     }
     setHeaderValue(this, field, value as string | string[])
@@ -247,7 +247,7 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
 
   type(this: ExpResponse, t: string) {
     const value = t.includes('/') ? t : lookupMimeType(t)
-    setHeaderValue(this, 'content-type', withCharset(value))
+    setHeaderValue(this, 'content-type', withCharset(value, st(this).compat))
     return this
   },
 
@@ -318,7 +318,8 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
     commitHead(this)
   },
 
-  json(this: ExpResponse, body?: unknown) {
+  json(this: ExpResponse, ...args: unknown[]) {
+    const body = resolveLegacyStatusArg(this, args)
     if (!st(this).headers.has('content-type')) {
       setHeaderValue(this, 'content-type', 'application/json; charset=utf-8')
     }
@@ -433,7 +434,8 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
     return this
   },
 
-  jsonp(this: ExpResponse, body?: unknown) {
+  jsonp(this: ExpResponse, ...args: unknown[]) {
+    const body = resolveLegacyStatusArg(this, args)
     const app = this.app as { settings?: Record<string, unknown> } | undefined
     const callbackName = String(app?.settings?.['jsonp callback name'] ?? 'callback')
     const query = this.req?.query as Record<string, unknown> | undefined
@@ -859,6 +861,25 @@ const LINE_SEPARATORS = /[\u2028\u2029]/g
 
 function escapeLineSeparators(json: string): string {
   return json.replace(LINE_SEPARATORS, (c) => (c === '\u2028' ? '\\u2028' : '\\u2029'))
+}
+
+/**
+ * Express 4's deprecated `res.json(status, obj)` / `res.json(obj, status)` two-argument
+ * forms (also `res.jsonp()`): with exactly two arguments, whichever one is a number is the
+ * status and the other is the body -- the second argument wins the tie when both are
+ * numbers (`res.json(200, 201)` sends body `200` with status `201`). Express 5 removed
+ * this form entirely -- a second argument there is simply ignored, same as calling any
+ * other function with an extra argument.
+ */
+function resolveLegacyStatusArg(res: ExpResponse, args: unknown[]): unknown {
+  if (args.length !== 2 || st(res).compat !== '4') return args[0]
+  const [first, second] = args
+  if (typeof second === 'number') {
+    res.statusCode = second
+    return first
+  }
+  res.statusCode = first as number
+  return second
 }
 
 /** `app.set('json replacer'/'json spaces'/'json escape', ...)`, honored by res.json()/jsonp(). */

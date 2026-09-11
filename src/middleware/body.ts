@@ -4,6 +4,7 @@
  * Written from scratch rather than wrapping body-parser: it assumes Node streams, and reading the Fetch Request directly is cheaper. Using the real body-parser still works, since `req` keeps its Node stream surface.
  */
 
+import type { CompatMode } from '../inventory.js'
 import { kState } from '../object-model.js'
 import type { ExpRequest } from '../request.js'
 import type { ExpResponse } from '../response.js'
@@ -29,6 +30,8 @@ export interface BodyOptions {
   strict?: boolean
   /** Charset assumed when the request does not name one. */
   defaultCharset?: string
+  /** Internal: which body-parser convention to follow (see `makeParser`). */
+  compat?: CompatMode
 }
 
 const DEFAULT_LIMIT = 100 * 1024
@@ -239,6 +242,11 @@ function makeParser(
   const wanted = options.type ?? defaultType
   const inflate = options.inflate ?? true
   const defaultCharset = (options.defaultCharset ?? 'utf-8').toLowerCase()
+  // Express 4's body-parser always initializes req.body to an empty value up front, even
+  // when the content-type doesn't match and nothing actually gets parsed. Express 5's
+  // newer body-parser dependency only sets it once parsing actually happens, leaving
+  // req.body untouched (usually undefined) otherwise.
+  const compat = options.compat ?? '5'
 
   return (req: ExpRequest, res: ExpResponse, next: NextFunction) => {
     if (req.body !== undefined) {
@@ -251,6 +259,7 @@ function makeParser(
       return
     }
     if (!typeMatches(req, wanted)) {
+      if (compat === '4') req.body = emptyValue()
       next()
       return
     }
