@@ -194,6 +194,20 @@ function checkDotfile(path: string, dotfiles: 'allow' | 'deny' | 'ignore'): void
 }
 
 /**
+ * `statFile()`, wrapping an unexpected fs error (not "there's nothing here") into a 404
+ * that keeps that error's real message and code -- matching how Express's own `send`
+ * package reports it (`ENAMETOOLONG`, say), rather than a generic "Not Found".
+ */
+async function statOrThrow(path: string): Promise<FileStat | null> {
+  try {
+    return await statFile(path)
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException
+    throw new SendError(404, e.message, e.code)
+  }
+}
+
+/**
  * Finds the file to serve, following `index` and `extensions`.
  *
  * `hasTrailingSlash` mirrors the `send` package's `hasTrailingSlash()` gate: a directory is only auto-served as its index file when the original request path ended with `/`.
@@ -203,20 +217,20 @@ async function locate(
   options: SendOptions,
   hasTrailingSlash: boolean,
 ): Promise<[string, FileStat]> {
-  const stat = await statFile(target)
+  const fileStat = await statOrThrow(target)
 
-  if (!stat && options.extensions) {
+  if (!fileStat && options.extensions) {
     const list = Array.isArray(options.extensions) ? options.extensions : [options.extensions]
     for (const ext of list) {
       const candidate = `${target}.${String(ext).replace(/^\./, '')}`
-      const s = await statFile(candidate)
+      const s = await statOrThrow(candidate)
       if (s?.isFile) return [candidate, s]
     }
   }
 
-  if (!stat) throw new SendError(404, 'Not Found', 'ENOENT')
+  if (!fileStat) throw new SendError(404, 'Not Found', 'ENOENT')
 
-  if (stat.isDirectory) {
+  if (fileStat.isDirectory) {
     if (options.index === false || !hasTrailingSlash) {
       throw new SendError(404, 'Not Found', 'ENOENT', true)
     }
@@ -228,7 +242,7 @@ async function locate(
           : [options.index]
     for (const name of names) {
       const candidate = await joinPath(target, name)
-      const s = await statFile(candidate)
+      const s = await statOrThrow(candidate)
       if (s?.isFile) return [candidate, s]
     }
     throw new SendError(404, 'Not Found', 'ENOENT')
@@ -237,7 +251,7 @@ async function locate(
   // A trailing slash on a path that resolves to a plain file (e.g. mounting a file directly and requesting it with `/`) has no file to serve.
   if (hasTrailingSlash) throw new SendError(404, 'Not Found', 'ENOENT')
 
-  return [target, stat]
+  return [target, fileStat]
 }
 
 /**
