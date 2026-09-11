@@ -133,12 +133,7 @@ export class Route {
   stack: Layer[] = []
   methods: Record<string, boolean> = {}
   /**
-   * Express 4's own `Route` and the `router` package Express 5 uses word a bad-handler
-   * TypeError differently (v4: "Route.get() requires a callback function but got a
-   * Number"; v5: the plain "argument handler must be a function"). Real Express ships two
-   * separate implementations; exphono shares one `Route` class across both compat modes,
-   * so it needs to know which wording to use. Defaults to '5' so `new Route(path)`
-   * constructed directly (no router involved) matches Express 5, same as the class itself.
+   * Express 4's own `Route` and the `router` package Express 5 uses word a bad-handler TypeError differently (v4: "Route.get() requires a callback function but got a Number"; v5: the plain "argument handler must be a function"). Real Express ships two separate implementations; exphono shares one `Route` class across both compat modes, so it needs to know which wording to use. Defaults to '5' so `new Route(path)` constructed directly (no router involved) matches Express 5, same as the class itself.
    */
   compat: CompatMode
 
