@@ -1,8 +1,7 @@
 /**
  * Downloads the express test suite and rewrites it to run against exphono.
  *
- * The suite is not committed: it is a large third-party tree, and fetching it on demand
- * keeps it pinned to an exact tag. Output goes to a gitignored directory.
+ * The suite is not committed: it is a large third-party tree, and fetching it on demand keeps it pinned to an exact tag. Output goes to a gitignored directory.
  */
 
 import { execFileSync } from 'node:child_process'
@@ -12,9 +11,7 @@ import { join, resolve } from 'node:path'
 export const VERSIONS = { 4: '4.22.2', 5: '5.2.1' }
 
 const root = resolve(import.meta.dirname, '../..')
-// Deliberately not dot-prefixed: `res.sendFile` with no `root` option checks every
-// ancestor directory name for a leading dot (matching the real `send` package), so a
-// dot-prefixed vendor directory would make its own path look like a dotfile.
+// Deliberately not dot-prefixed: `res.sendFile` with no `root` option checks every ancestor directory name for a leading dot (matching the real `send` package), so a dot-prefixed vendor directory would make its own path look like a dotfile.
 export const vendorRoot = join(root, 'express-suite-vendor')
 
 /** `require('..')`, `require('../')`, `require('../.')` and `require('../index')`. */
@@ -24,8 +21,7 @@ const EXPRESS_ROOT = new RegExp(String.raw`require\(['"]\.\.(?:/index|/\.|/)?['"
 const EXPRESS_UTILS = new RegExp(String.raw`require\(['"]\.\./lib/utils['"]\)`, 'g')
 
 /**
- * Files that exercise express's own internals rather than its public API, so there is
- * nothing for exphono to be compatible with.
+ * Files that exercise express's own internals rather than its public API, so there is nothing for exphono to be compatible with.
  */
 const SKIP = new Set(['utils.js'])
 
@@ -95,9 +91,7 @@ export function prepare(version) {
   const fixtures = join(testDir, 'fixtures')
   if (existsSync(fixtures)) {
     execFileSync('cp', ['-r', fixtures, join(outDir, 'fixtures')])
-    // A handful of tests hard-code 'test/fixtures/...' (the original express package
-    // layout) instead of resolving via __dirname, so the suite is run with outDir as
-    // its cwd and needs a matching test/fixtures copy too.
+    // A handful of tests hard-code 'test/fixtures/...' (the original express package layout) instead of resolving via __dirname, so the suite is run with outDir as its cwd and needs a matching test/fixtures copy too.
     mkdirSync(join(outDir, 'test'), { recursive: true })
     execFileSync('cp', ['-r', fixtures, join(outDir, 'test', 'fixtures')])
   }

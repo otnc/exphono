@@ -164,11 +164,7 @@ const DEFAULT_SETTINGS_V5: Record<string, unknown> = {
 }
 
 /**
- * The prototype every app is `setPrototypeOf`'d onto -- `express.application`, matching
- * Express's own mixin point. Each app still gets its own `set`/`get`/etc. as own
- * properties (they close over that app's settings and router), which shadow this; a
- * property added here only takes effect where an app doesn't already have one of its
- * own, same as `express.request` / `express.response`.
+ * The prototype every app is `setPrototypeOf`'d onto -- `express.application`, matching Express's own mixin point. Each app still gets its own `set`/`get`/etc. as own properties (they close over that app's settings and router), which shadow this; a property added here only takes effect where an app doesn't already have one of its own, same as `express.request` / `express.response`.
  */
 export const applicationProto: Record<string, unknown> = {
   set(this: Application, key: string, ...rest: unknown[]): unknown {
@@ -187,9 +183,7 @@ export const applicationProto: Record<string, unknown> = {
   },
 }
 
-// `app` is a function (it has to be, for `http.createServer(app)` and mounting to work),
-// so its chain must still reach Function.prototype -- Node's EventEmitter invokes
-// listeners via `.apply()`, which a chain ending at Object.prototype wouldn't have.
+// `app` is a function (it has to be, for `http.createServer(app)` and mounting to work), so its chain must still reach Function.prototype -- Node's EventEmitter invokes listeners via `.apply()`, which a chain ending at Object.prototype wouldn't have.
 Object.setPrototypeOf(applicationProto, Function.prototype)
 
 export function createApplication(compatDefault: CompatMode = '5'): Application {
@@ -228,10 +222,7 @@ export function createApplication(compatDefault: CompatMode = '5'): Application 
   app.request = createAppProto(requestProto, app)
   app.response = createAppProto(responseProto, app)
 
-  // Lazily created on first use, matching Express: this lets `app.enable('strict
-  // routing')` (etc.) called before any route is registered still take effect, since the
-  // matcher for each route is compiled once, up front, from whatever these were at the
-  // time.
+  // Lazily created on first use, matching Express: this lets `app.enable('strict routing')` (etc.) called before any route is registered still take effect, since the matcher for each route is compiled once, up front, from whatever these were at the time.
   let router: RouterInstance | undefined
   const getRouter = (): RouterInstance => {
     if (!router) {
@@ -436,10 +427,7 @@ export function createApplication(compatDefault: CompatMode = '5'): Application 
         return
       }
 
-      // `app.set('view', CustomView)` hands over an ordinary constructor, following
-      // Express's own convention -- exphono's own View is only special in needing an
-      // async factory (loading an engine module and stat-ing candidate paths both await),
-      // so that path is used when present and a plain `new` covers everyone else's view.
+      // `app.set('view', CustomView)` hands over an ordinary constructor, following Express's own convention -- exphono's own View is only special in needing an async factory (loading an engine module and stat-ing candidate paths both await), so that path is used when present and a plain `new` covers everyone else's view.
       const ViewCtor = app.get('view') as typeof View & {
         create?: (name: string, options: unknown) => Promise<View>
       }
@@ -554,11 +542,7 @@ function mountSubApp(
   child.mountpath = typeof path === 'string' ? path : '/'
   child.parent = parent
 
-  // A setting the sub-app never touched falls through to the parent's, the same way
-  // Express does it by chaining the settings objects' prototypes. `trust proxy` is set
-  // explicitly during init rather than left absent, so it's still at its default (false)
-  // even on a sub-app that never touched it -- drop it and its compiled function here so
-  // it falls through too, rather than shadowing the parent's.
+  // A setting the sub-app never touched falls through to the parent's, the same way Express does it by chaining the settings objects' prototypes. `trust proxy` is set explicitly during init rather than left absent, so it's still at its default (false) even on a sub-app that never touched it -- drop it and its compiled function here so it falls through too, rather than shadowing the parent's.
   const childSettings = child.settings as Record<string, unknown>
   const parentSettings = parent.settings as Record<string, unknown>
   if (childSettings['trust proxy'] === false) {
@@ -567,10 +551,7 @@ function mountSubApp(
   }
   Object.setPrototypeOf(childSettings, parentSettings)
 
-  // A property added to the parent's per-app request/response prototype after mounting
-  // (`app1.request.foo = ...`) is still visible from the sub-app, the same way Express
-  // chains `this.request`/`this.response` onto the parent's in its own 'mount' handler.
-  // A sub-app's own override still shadows it, since that lands as an own property here.
+  // A property added to the parent's per-app request/response prototype after mounting (`app1.request.foo = ...`) is still visible from the sub-app, the same way Express chains `this.request`/`this.response` onto the parent's in its own 'mount' handler. A sub-app's own override still shadows it, since that lands as an own property here.
   Object.setPrototypeOf(child.request, parent.request)
   Object.setPrototypeOf(child.response, parent.response)
   Object.setPrototypeOf(child.engines, parent.engines)

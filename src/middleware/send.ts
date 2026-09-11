@@ -45,23 +45,17 @@ export class SendError extends Error {
   statusCode: number
   code?: string
   /**
-   * Set when the target turned out to be a directory that could not be served as an index
-   * (no trailing slash, or indexes disabled). `express.static` turns this into a redirect
-   * to the trailing-slash form; `res.sendFile`/`res.download` just leave it as a 404.
+   * Set when the target turned out to be a directory that could not be served as an index (no trailing slash, or indexes disabled). `express.static` turns this into a redirect to the trailing-slash form; `res.sendFile`/`res.download` just leave it as a 404.
    */
   isDirectory?: boolean
   /**
-   * Set once a matching file has actually been found. `express.static`'s `fallthrough`
-   * option only covers "this doesn't look like one of my files" (not found, forbidden,
-   * a bare directory); an error raised while building the response for a file that does
-   * exist (a failed precondition, an invalid range) is always reported, never swallowed.
+   * Set once a matching file has actually been found. `express.static`'s `fallthrough` option only covers "this doesn't look like one of my files" (not found, forbidden, a bare directory); an error raised while building the response for a file that does exist (a failed precondition, an invalid range) is always reported, never swallowed.
    */
   fileFound?: boolean
 
   constructor(status: number, message: string, code?: string, isDirectory?: boolean) {
     super(message)
-    // Matches the `http-errors` naming convention (`404` -> `NotFoundError`), since the
-    // default error page shows the error's name and a few express tests check for it.
+    // Matches the `http-errors` naming convention (`404` -> `NotFoundError`), since the default error page shows the error's name and a few express tests check for it.
     this.name = HTTP_ERROR_NAMES[status] ?? 'SendError'
     this.status = status
     this.statusCode = status
@@ -148,9 +142,7 @@ function containsDotfile(path: string): boolean {
 }
 
 /**
- * A leading, trailing or standalone `..` path segment. Matches the `send` package's
- * `UP_PATH_REGEXP`: a path is rejected whenever this appears, even if the segment would
- * ultimately resolve back inside `root` once joined.
+ * A leading, trailing or standalone `..` path segment. Matches the `send` package's `UP_PATH_REGEXP`: a path is rejected whenever this appears, even if the segment would ultimately resolve back inside `root` once joined.
  */
 const UP_PATH_REGEXP = /(?:^|[\\/])\.\.(?:[\\/]|$)/
 
@@ -200,8 +192,7 @@ function checkDotfile(path: string, dotfiles: 'allow' | 'deny' | 'ignore'): void
 /**
  * Finds the file to serve, following `index` and `extensions`.
  *
- * `hasTrailingSlash` mirrors the `send` package's `hasTrailingSlash()` gate: a directory is
- * only auto-served as its index file when the original request path ended with `/`.
+ * `hasTrailingSlash` mirrors the `send` package's `hasTrailingSlash()` gate: a directory is only auto-served as its index file when the original request path ended with `/`.
  */
 async function locate(
   target: string,
@@ -239,8 +230,7 @@ async function locate(
     throw new SendError(404, 'Not Found', 'ENOENT')
   }
 
-  // A trailing slash on a path that resolves to a plain file (e.g. mounting a file
-  // directly and requesting it with `/`) has no file to serve.
+  // A trailing slash on a path that resolves to a plain file (e.g. mounting a file directly and requesting it with `/`) has no file to serve.
   if (hasTrailingSlash) throw new SendError(404, 'Not Found', 'ENOENT')
 
   return [target, stat]

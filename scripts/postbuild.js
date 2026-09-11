@@ -1,6 +1,5 @@
 /**
- * Drops the JS that the types-only tsdown config still emits, so it is not published
- * as dead weight.
+ * Drops the JS that the types-only tsdown config still emits, so it is not published as dead weight.
  */
 
 import { readdirSync, rmSync, statSync } from 'node:fs'

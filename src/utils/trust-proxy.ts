@@ -119,9 +119,7 @@ export function resolveAddress(
 }
 
 /**
- * `req.ips`: the whole trusted portion of the chain, socket address excluded and
- * outermost (closest to the original client) first -- matching `proxyaddr.all(req,
- * trust).reverse().pop()`, stopping at (and including) the first untrusted hop.
+ * `req.ips`: the whole trusted portion of the chain, socket address excluded and outermost (closest to the original client) first -- matching `proxyaddr.all(req, trust).reverse().pop()`, stopping at (and including) the first untrusted hop.
  */
 export function resolveAllAddresses(
   socketAddr: string | undefined,

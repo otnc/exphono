@@ -1,13 +1,9 @@
 #!/usr/bin/env node
 // Template setup: fill in package metadata interactively.
-//
+
 // Run with: npm run setup
-//
-// It asks for the package name, description, author, GitHub repository, license
-// and keywords, then rewrites package.json and every placeholder in the text
-// files (README, CONTRIBUTING, GitHub workflows and templates).
-// The LICENSE file is NOT generated — place your own LICENSE file in the root.
-// No dependencies — Node >= 22 built-ins only.
+
+// It asks for the package name, description, author, GitHub repository, license and keywords, then rewrites package.json and every placeholder in the text files (README, CONTRIBUTING, GitHub workflows and templates). The LICENSE file is NOT generated — place your own LICENSE file in the root. No dependencies — Node >= 22 built-ins only.
 
 import { readdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join, relative } from 'node:path'
@@ -18,9 +14,7 @@ import { fileURLToPath } from 'node:url'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const root = join(__dirname, '..')
 
-// When stdin is piped (non-TTY), readline's `question` doesn't drain the
-// buffered lines reliably, so read all of stdin up front and answer from it.
-// Interactive (TTY) use keeps the normal readline prompt flow.
+// When stdin is piped (non-TTY), readline's `question` doesn't drain the buffered lines reliably, so read all of stdin up front and answer from it. Interactive (TTY) use keeps the normal readline prompt flow.
 const interactive = stdin.isTTY
 let rl = null
 let pipedLines = []
@@ -56,9 +50,7 @@ function detectManager() {
 
 const VALID_MANAGERS = new Set(['npm', 'pnpm', 'yarn', 'bun'])
 
-// Normalize a GitHub repository URL: adds the https:// protocol (and the
-// github.com host for a bare "owner/repo"), and strips a trailing ".git"
-// or trailing slash.
+// Normalize a GitHub repository URL: adds the https:// protocol (and the github.com host for a bare "owner/repo"), and strips a trailing ".git" or trailing slash.
 function normalizeGitUrl(input) {
   let url = input.trim()
   if (!url) return ''
@@ -148,9 +140,7 @@ async function walk(dir) {
 
 // Only rewrite text files that may carry placeholders.
 const TEXT_EXT = new Set(['.md', '.yml', '.yaml', '.json', '.ts', '.js', '.cjs', '.mjs'])
-// Skip in the generic placeholder walk: package.json is handled explicitly,
-// LICENSE is user-managed, setup.js would otherwise rewrite its own placeholders,
-// and the workflows are generated per package manager below.
+// Skip in the generic placeholder walk: package.json is handled explicitly, LICENSE is user-managed, setup.js would otherwise rewrite its own placeholders, and the workflows are generated per package manager below.
 const SKIP_FILES = new Set([
   join(root, 'package.json'),
   join(root, 'LICENSE'),

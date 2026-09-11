@@ -160,10 +160,7 @@ async function readBytes(req: ExpRequest, limit: number, inflate: boolean): Prom
         chunks.push(value)
       }
     } catch (e) {
-      // The client may still be sending bytes we've decided not to read (e.g. a body
-      // over the limit, mid-upload). Cancelling propagates through DecompressionStream to
-      // the underlying Node request, instead of leaving the connection hung waiting for
-      // an end that a caller who already got their error response has no reason to send.
+      // The client may still be sending bytes we've decided not to read (e.g. a body over the limit, mid-upload). Cancelling propagates through DecompressionStream to the underlying Node request, instead of leaving the connection hung waiting for an end that a caller who already got their error response has no reason to send.
       reader.cancel().catch(() => undefined)
       // A malformed gzip/deflate body surfaces as a generic decompression error here;
       // Express reports that as a 400 rather than letting it fall through as a 500.
@@ -196,9 +193,7 @@ async function readBytes(req: ExpRequest, limit: number, inflate: boolean): Prom
 }
 
 /**
- * Node's `TextDecoder` treats the bare `utf-16` label as an alias for `utf-16le` and never
- * sniffs the byte-order mark, unlike browsers. Resolve the BOM ourselves so a big-endian
- * payload (`FE FF`) decodes correctly instead of coming out garbled.
+ * Node's `TextDecoder` treats the bare `utf-16` label as an alias for `utf-16le` and never sniffs the byte-order mark, unlike browsers. Resolve the BOM ourselves so a big-endian payload (`FE FF`) decodes correctly instead of coming out garbled.
  */
 function resolveDecoderCharset(charset: string, bytes: Uint8Array): string {
   if (charset !== 'utf-16' && charset !== 'utf16') return charset
@@ -262,8 +257,7 @@ function makeParser(
 
     const charset = charsetOf(req) || defaultCharset
 
-    // Checked ahead of reading the body (and, in particular, ahead of `verify`) so a
-    // request with an unsupported charset never reaches user code at all.
+    // Checked ahead of reading the body (and, in particular, ahead of `verify`) so a request with an unsupported charset never reaches user code at all.
     if (!isValidCharset(charset)) {
       const err = new BodyError(
         415,
@@ -334,10 +328,7 @@ function firstNonWhitespaceChar(text: string): string | undefined {
 }
 
 /**
- * Builds the same error `JSON.parse` itself would raise for a bare primitive like `true`,
- * even though that primitive parses fine on its own — strict mode rejects it only because
- * it isn't wrapped in `{}`/`[]`. Replacing everything after the first real character with
- * `#` (a token `JSON.parse` always rejects) reuses V8's own message instead of inventing one.
+ * Builds the same error `JSON.parse` itself would raise for a bare primitive like `true`, even though that primitive parses fine on its own — strict mode rejects it only because it isn't wrapped in `{}`/`[]`. Replacing everything after the first real character with `#` (a token `JSON.parse` always rejects) reuses V8's own message instead of inventing one.
  */
 function jsonStrictSyntaxError(text: string, firstChar: string | undefined): BodyError {
   const index = text.indexOf(String(firstChar))

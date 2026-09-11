@@ -157,8 +157,7 @@ export function isFresh(
   const cacheControl = reqHeaders['cache-control']
   if (cacheControl && /(?:^|,)\s*no-cache\s*(?:,|$)/.test(cacheControl)) return false
 
-  // if-none-match takes precedence over if-modified-since -- when both are present, the
-  // latter is never consulted at all, not just allowed to be overridden by a pass here.
+  // if-none-match takes precedence over if-modified-since -- when both are present, the latter is never consulted at all, not just allowed to be overridden by a pass here.
   if (noneMatch) {
     if (noneMatch === '*') return true
     const etag = resHeaders.etag
