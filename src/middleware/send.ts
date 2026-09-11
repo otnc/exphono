@@ -4,6 +4,7 @@
  * Reimplemented rather than reusing the `send` package, which is built around Node's http module.
  */
 
+import { kState } from '../object-model.js'
 import type { ExpRequest } from '../request.js'
 import type { ExpResponse } from '../response.js'
 import {
@@ -17,7 +18,7 @@ import {
   resolvePath,
   statFile,
 } from '../runtime/files.js'
-import { lookupMimeType } from '../utils/mime.js'
+import { lookupMimeType, withCharset } from '../utils/mime.js'
 import { isFresh, parseRange } from '../utils/negotiation.js'
 
 export interface SendOptions {
@@ -257,7 +258,8 @@ export async function sendFile(
 
   if (!res.get('content-type')) {
     const type = lookupMimeType((await extname(file)).replace(/^\./, ''))
-    res.type(type)
+    // Not res.type(): Express's own res.set()/res.type() explicitly lowercase the charset they add, but `send`'s own content-type assignment doesn't -- it's raw from the (compat=4-era) mime-db, uppercase 'UTF-8'. setHeader bypasses that lowercasing.
+    res.setHeader('content-type', withCharset(type, res[kState].compat))
   }
 
   if (options.acceptRanges !== false) res.set('accept-ranges', 'bytes')
