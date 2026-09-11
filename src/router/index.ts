@@ -472,7 +472,7 @@ export function createRouter(options: RouterOptions = {}): RouterInstance {
       if (!layer) {
         req.params = parentParams
         if (!layerErr && optionsMethods && optionsMethods.length > 0) {
-          sendOptionsResponse(res, optionsMethods, (err) => done(err))
+          sendOptionsResponse(res, optionsMethods, opts.compat, (err) => done(err))
           return
         }
         done(layerErr)
@@ -518,9 +518,14 @@ export function createRouter(options: RouterOptions = {}): RouterInstance {
 /**
  * The default `OPTIONS` reply when nothing else handled the request: an `Allow` header listing every method a route along the way declared. Errors thrown while writing it (headers already sent by earlier middleware, say) are reported like any other error rather than crashing.
  */
-function sendOptionsResponse(res: ExpResponse, methods: string[], next: NextFunction): void {
+function sendOptionsResponse(
+  res: ExpResponse,
+  methods: string[],
+  compat: CompatMode,
+  next: NextFunction,
+): void {
   try {
-    const allow = Array.from(new Set(methods)).sort().join(', ')
+    const allow = Array.from(new Set(methods)).sort().join(compat === '4' ? ',' : ', ')
     res.set('allow', allow)
     res.set('content-length', String(allow.length))
     res.set('content-type', 'text/plain')
