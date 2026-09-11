@@ -1,6 +1,6 @@
 {
   "name": "exphono",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Run your Express app on Hono. A migration-first Express compatibility layer for Node.js, Cloudflare Workers, Deno and Bun.",
   "keywords": [
     "express",
