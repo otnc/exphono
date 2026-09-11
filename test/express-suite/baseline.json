@@ -1,13 +1,13 @@
 {
   "express5": {
-    "passing": 1108,
-    "failing": 8,
+    "passing": 1112,
+    "failing": 4,
     "total": 1116,
     "recorded": "2026-09-11"
   },
   "express4": {
-    "passing": 1151,
-    "failing": 47,
+    "passing": 1155,
+    "failing": 43,
     "total": 1198,
     "recorded": "2026-09-11"
   }

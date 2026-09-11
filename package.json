@@ -121,7 +121,7 @@
     "on-finished": "^2.4.1",
     "rolldown": "^1.2.7",
     "safe-buffer": "^5.2.1",
-    "supertest": "^7.2.2",
+    "supertest": "^6.3.4",
     "tsdown": "^0.23.0",
     "typescript": "^6.0.3",
     "unrun": "^0.3.1",
