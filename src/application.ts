@@ -28,6 +28,7 @@ import { mixinEmitter } from './runtime/event-emitter.js'
 import { handleNodeRequest, serve } from './runtime/serve.js'
 import { strongEtag, weakBodyEtag } from './utils/etag.js'
 import { compileTrust } from './utils/trust-proxy.js'
+import { describeType } from './utils/type-name.js'
 import type { EngineFn } from './view/index.js'
 import { View } from './view/index.js'
 
@@ -295,7 +296,13 @@ export function createApplication(compatDefault: CompatMode = '5'): Application 
     if (handlers.length === 0) throw new TypeError('app.use() requires a middleware function')
 
     for (const h of handlers) {
-      if (typeof h !== 'function') throw new TypeError('argument handler must be a function')
+      if (typeof h !== 'function') {
+        throw new TypeError(
+          compat === '4'
+            ? `app.use() requires a middleware function but got a ${describeType(h)}`
+            : 'argument handler must be a function',
+        )
+      }
 
       const sub = h as Partial<Application>
       if (sub.handle && sub.set && sub.settings) {
