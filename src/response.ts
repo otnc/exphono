@@ -218,7 +218,9 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
     }
     if (field.toLowerCase() === 'content-type') {
       if (Array.isArray(value)) throw new TypeError('Content-Type cannot be set to an Array')
-      setHeaderValue(this, field, withCharset(String(value), st(this).compat))
+      // Always lowercase, even under compat=4: Express's own res.set()/res.header() explicitly lowercases the charset it looks up, unlike send's own content-type
+      // assignment (see sendFile() in send.ts), which is where the v4-only uppercase 'UTF-8' actually comes from.
+      setHeaderValue(this, field, withCharset(String(value)))
       return this
     }
     setHeaderValue(this, field, value as string | string[])
@@ -247,7 +249,7 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
 
   type(this: ExpResponse, t: string) {
     const value = t.includes('/') ? t : lookupMimeType(t)
-    setHeaderValue(this, 'content-type', withCharset(value, st(this).compat))
+    setHeaderValue(this, 'content-type', withCharset(value))
     return this
   },
 
