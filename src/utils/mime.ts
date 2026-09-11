@@ -43,8 +43,7 @@ const MIME: Record<string, string> = {
 
 /**
  * Accepts a bare extension ('js'), a dotted one ('.js') or a whole filename ('foo.js').
- * Under compat=4, JS files map to the older `application/javascript` mime-db entry --
- * the IANA/WHATWG registration change to `text/javascript` postdates Express 4.
+ * Under compat=4, JS files map to the older `application/javascript` mime-db entry -- the IANA/WHATWG registration change to `text/javascript` postdates Express 4.
  */
 export function lookupMimeType(ext: string, compat: '4' | '5' = '5'): string {
   const base = ext.split(/[\\/]/).pop() ?? ext
@@ -57,11 +56,7 @@ export function lookupMimeType(ext: string, compat: '4' | '5' = '5'): string {
 }
 
 /**
- * Adds a charset to the types that need one -- lowercase `utf-8` under Express 5's mime-db,
- * uppercase `UTF-8` under Express 4's older one. Only affects types resolved through this
- * lookup (`res.type()`, and `express.static`/`res.sendFile`/`res.download` by extension);
- * an explicit `charset=` already on the type, or one hardcoded elsewhere (`res.json()`'s),
- * is untouched.
+ * Adds a charset to the types that need one -- lowercase `utf-8` under Express 5's mime-db, uppercase `UTF-8` under Express 4's older one. Only affects types resolved through this lookup (`res.type()`, and `express.static`/`res.sendFile`/`res.download` by extension); an explicit `charset=` already on the type, or one hardcoded elsewhere (`res.json()`'s), is untouched.
  */
 export function withCharset(type: string, compat: '4' | '5' = '5'): string {
   if (type.includes('charset')) return type
@@ -69,8 +64,7 @@ export function withCharset(type: string, compat: '4' | '5' = '5'): string {
     /^text\//.test(type) ||
     type === 'application/json' ||
     type === 'image/svg+xml' ||
-    // Express 4's older mime-db entry for .js -- text/javascript (the current one)
-    // already matches the text/ prefix above.
+    // Express 4's older mime-db entry for .js -- text/javascript (the current one) already matches the text/ prefix above.
     type === 'application/javascript'
   ) {
     return `${type}; charset=${compat === '4' ? 'UTF-8' : 'utf-8'}`

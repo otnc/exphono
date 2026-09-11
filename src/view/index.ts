@@ -50,13 +50,7 @@ export class View {
 
     if (!options.engines[view.ext]) {
       const mod = view.ext.slice(1)
-      // Real Express's equivalent (`require(mod).__express`) only ever hits the "no
-      // .__express" branch below because `send` -- the module name a `.send` extension
-      // resolves to here -- happens to already be installed as one of Express's own
-      // dependencies. exphono reimplements `send` from scratch rather than depending on
-      // it, so the module frequently won't be installed at all; from the caller's
-      // perspective that's the same failure (this extension has no usable engine), so
-      // both report the same friendly error rather than leaking a raw resolution error.
+      // Real Express's equivalent (`require(mod).__express`) only ever hits the "no .__express" branch below because `send` -- the module name a `.send` extension resolves to here -- happens to already be installed as one of Express's own dependencies. exphono reimplements `send` from scratch rather than depending on it, so the module frequently won't be installed at all; from the caller's perspective that's the same failure (this extension has no usable engine), so both report the same friendly error rather than leaking a raw resolution error.
       const fn = await import(/* @vite-ignore */ mod)
         .then((imported: { __express?: EngineFn }) => imported.__express)
         .catch(() => undefined)
