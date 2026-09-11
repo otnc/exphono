@@ -132,7 +132,7 @@ export interface Application extends VerbMethods, ApplicationEvents {
   use(...handlers: Mountable[]): Application
   use(path: PathSpec, ...handlers: Mountable[]): Application
   route(path: string): Route
-  param(name: string, fn: ParamCallback): Application
+  param(name: string | string[], fn: ParamCallback): Application
   path(): string
   handle(req: ExpRequest, res: ExpResponse, next?: NextFunction): void
   init(): void
@@ -213,6 +213,7 @@ export function createApplication(compatDefault: CompatMode = '5'): Application 
 
   Object.assign(settings, compat === '4' ? DEFAULT_SETTINGS_V4 : DEFAULT_SETTINGS_V5)
   settings.env = readEnv()
+  if (settings.env === 'production') settings['view cache'] = true
 
   app.settings = settings
   app.locals = Object.create(null) as Record<string, unknown>
@@ -316,7 +317,11 @@ export function createApplication(compatDefault: CompatMode = '5'): Application 
   }
 
   app.route = (path: string) => getRouter().route(path)
-  app.param = (name: string, fn: ParamCallback) => {
+  app.param = (name: string | string[], fn: ParamCallback) => {
+    if (Array.isArray(name)) {
+      for (const n of name) app.param(n, fn)
+      return app
+    }
     getRouter().param(name, fn)
     return app
   }
@@ -371,6 +376,7 @@ export function createApplication(compatDefault: CompatMode = '5'): Application 
     value: () => {
       Object.assign(settings, compat === '4' ? DEFAULT_SETTINGS_V4 : DEFAULT_SETTINGS_V5)
       settings.env = readEnv()
+      if (settings.env === 'production') settings['view cache'] = true
     },
   })
 
@@ -525,7 +531,7 @@ export function createApplication(compatDefault: CompatMode = '5'): Application 
 function readEnv(): string {
   try {
     const proc = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process
-    return proc?.env?.NODE_ENV ?? 'development'
+    return proc?.env?.NODE_ENV || 'development'
   } catch {
     return 'development'
   }
