@@ -24,3 +24,20 @@ jobs:
       - run: pnpm run ci
       - run: pnpm run typecheck
       - run: pnpm run test
+
+  # tsdown/rolldown need Promise.withResolvers (Node 22+), so the build itself -- and
+  # everything downstream of it -- only runs on the newer half of the test matrix above.
+  # The built output still targets Node 20, this is purely a build-tooling constraint.
+  express-suite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install
+      - run: pnpm run build
+      - run: node test/express-suite/run.js
+      - run: node test/express-suite/run.js --v4
