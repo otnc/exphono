@@ -145,6 +145,11 @@ function toBytes(chunk: unknown): Uint8Array {
 
 function setHeaderValue(res: ExpResponse, name: string, value: string | string[] | number): void {
   const s = st(res)
+  if (s.headWritten) {
+    const err = new Error('Cannot set headers after they are sent to the client')
+    err.name = 'Error [ERR_HTTP_HEADERS_SENT]'
+    throw err
+  }
   const key = String(name)
   s.headers.delete(key)
   if (Array.isArray(value)) {
@@ -680,7 +685,11 @@ Object.defineProperties(responseProto, {
   headersSent: {
     configurable: true,
     get(this: ExpResponse) {
-      return st(this).phase !== 'idle'
+      const s = st(this)
+      // Node flips this the moment writeHead() runs, not only once the body starts
+      // flowing -- headWritten tracks that; phase only moves once a write/end actually
+      // begins, which would otherwise miss the writeHead()-then-nothing-yet window.
+      return s.headWritten || s.phase !== 'idle'
     },
   },
   writableEnded: {
