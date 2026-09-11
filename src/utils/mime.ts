@@ -41,12 +41,19 @@ const MIME: Record<string, string> = {
   multipart: 'multipart/form-data',
 }
 
-/** Accepts a bare extension ('js'), a dotted one ('.js') or a whole filename ('foo.js'). */
-export function lookupMimeType(ext: string): string {
+/**
+ * Accepts a bare extension ('js'), a dotted one ('.js') or a whole filename ('foo.js').
+ * Under compat=4, JS files map to the older `application/javascript` mime-db entry --
+ * the IANA/WHATWG registration change to `text/javascript` postdates Express 4.
+ */
+export function lookupMimeType(ext: string, compat: '4' | '5' = '5'): string {
   const base = ext.split(/[\\/]/).pop() ?? ext
   const dot = base.lastIndexOf('.')
-  const bare = dot === -1 ? base : base.slice(dot + 1)
-  return MIME[bare.toLowerCase()] ?? 'application/octet-stream'
+  const bare = (dot === -1 ? base : base.slice(dot + 1)).toLowerCase()
+  if (compat === '4' && (bare === 'js' || bare === 'mjs' || bare === 'cjs')) {
+    return 'application/javascript'
+  }
+  return MIME[bare] ?? 'application/octet-stream'
 }
 
 /**
@@ -58,7 +65,14 @@ export function lookupMimeType(ext: string): string {
  */
 export function withCharset(type: string, compat: '4' | '5' = '5'): string {
   if (type.includes('charset')) return type
-  if (/^text\//.test(type) || type === 'application/json' || type === 'image/svg+xml') {
+  if (
+    /^text\//.test(type) ||
+    type === 'application/json' ||
+    type === 'image/svg+xml' ||
+    // Express 4's older mime-db entry for .js -- text/javascript (the current one)
+    // already matches the text/ prefix above.
+    type === 'application/javascript'
+  ) {
     return `${type}; charset=${compat === '4' ? 'UTF-8' : 'utf-8'}`
   }
   return type
