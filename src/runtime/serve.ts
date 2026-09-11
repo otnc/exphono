@@ -1,10 +1,10 @@
 /**
  * `app.listen()` for Node, Bun and Deno.
  *
- * The edge build aliases this module to `serve.edge.ts`. Bundlers follow dynamic imports, so leaving the `@hono/node-server` reference in would drag `node:http` into a Workers bundle — runtime detection alone is not enough.
+ * The edge build aliases this whole module to `serve.edge.ts`, so `node:http` never reaches a Workers bundle either way -- safe to import directly rather than dynamically.
  */
 
-import { report } from '../diagnostics.js'
+import { createServer } from 'node:http'
 import { kActualStatus, kNodeStream, kRemoteAddress } from '../object-model.js'
 
 export interface ServeTarget {
@@ -45,46 +45,18 @@ export function serve(
   return serveNode(app, port, hostname, callback)
 }
 
+/**
+ * Same adapter `http.createServer(app)` uses (see `handleNodeRequest` below), just with exphono binding the socket itself -- Express does the equivalent with `http.createServer(this).listen(...)`. A real `http.Server` already satisfies `ServerHandle` (address/close/on/once are all native), so there's no handle-wrapping or async gap to manage: `.close()` called synchronously right after `app.listen()` -- as Express's own tests do -- works the same as it would against real Express, since the socket bind happens synchronously inside `.listen()` even though the `'listening'` event itself fires later.
+ */
 function serveNode(
   app: ServeTarget,
   port: number | undefined,
   hostname: string | undefined,
   callback: ((err?: unknown) => void) | undefined,
 ): ServerHandle {
-  const listeners = new Map<string, ((...args: unknown[]) => void)[]>()
-  let server:
-    | {
-        address?: () => unknown
-        close?: (cb?: () => void) => void
-        on?: (event: string, listener: (...args: unknown[]) => void) => unknown
-      }
-    | undefined
-  // The underlying node server is only created once the dynamic import below resolves (kept dynamic so bundlers don't drag @hono/node-server into the edge build), so a .close() called synchronously right after app.listen() -- as Express's own tests do -- would otherwise land while `server` is still undefined and silently drop the callback. Replayed against the real server once it exists instead.
-  let pendingClose: (() => void) | undefined
-  let closeRequested = false
-
-  const handle: ServerHandle = {
-    address: () => server?.address?.() ?? null,
-    close: (cb) => {
-      if (server) {
-        server.close?.(cb)
-        return
-      }
-      closeRequested = true
-      pendingClose = cb
-    },
-    on: (event, listener) => {
-      const bucket = listeners.get(event) ?? []
-      bucket.push(listener)
-      listeners.set(event, bucket)
-      return handle
-    },
-    once: (event, listener) => handle.on(event, listener),
-  }
-
-  const emit = (event: string, ...args: unknown[]): void => {
-    for (const fn of listeners.get(event) ?? []) fn(...args)
-  }
+  const server = createServer((req, res) => {
+    void handleNodeRequest(app, req, res)
+  })
 
   // Express calls the listen callback for both success and failure (`server.once('error', done)` wraps the same function passed to `.listen()`), and guards it to fire at most once since only one of 'listening' / 'error' ever actually happens.
   let callbackCalled = false
@@ -93,26 +65,12 @@ function serveNode(
     callbackCalled = true
     callback?.(err)
   }
+  server.once('listening', () => callOnce())
+  server.once('error', (err) => callOnce(err))
 
-  import('@hono/node-server')
-    .then(({ serve: honoServe }) => {
-      server = honoServe({ fetch: app.fetch, port, hostname }, (info: unknown) => {
-        callOnce()
-        emit('listening', info)
-      }) as typeof server
-      server?.on?.('error', (err: unknown) => {
-        callOnce(err)
-        emit('error', err)
-      })
-      if (closeRequested) server?.close?.(pendingClose)
-    })
-    .catch((err: unknown) => {
-      report('EXPHONO_E001', { context: 'app.listen' })
-      callOnce(err)
-      emit('error', err)
-    })
+  server.listen(port, hostname)
 
-  return handle
+  return server as unknown as ServerHandle
 }
 
 /**
