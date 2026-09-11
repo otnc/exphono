@@ -28,7 +28,7 @@ export function serve(
   app: ServeTarget,
   port: number | undefined,
   hostname: string | undefined,
-  callback: (() => void) | undefined,
+  callback: ((err?: unknown) => void) | undefined,
 ): unknown {
   const g = globalThis as unknown as GlobalRuntimes
 
@@ -49,15 +49,33 @@ function serveNode(
   app: ServeTarget,
   port: number | undefined,
   hostname: string | undefined,
-  callback: (() => void) | undefined,
+  callback: ((err?: unknown) => void) | undefined,
 ): ServerHandle {
   const listeners = new Map<string, ((...args: unknown[]) => void)[]>()
-  let server: { address?: () => unknown; close?: (cb?: () => void) => void } | undefined
+  let server:
+    | {
+        address?: () => unknown
+        close?: (cb?: () => void) => void
+        on?: (event: string, listener: (...args: unknown[]) => void) => unknown
+      }
+    | undefined
+  // The underlying node server is only created once the dynamic import below resolves
+  // (kept dynamic so bundlers don't drag @hono/node-server into the edge build), so a
+  // .close() called synchronously right after app.listen() -- as Express's own tests do
+  // -- would otherwise land while `server` is still undefined and silently drop the
+  // callback. Replayed against the real server once it exists instead.
+  let pendingClose: (() => void) | undefined
+  let closeRequested = false
 
   const handle: ServerHandle = {
     address: () => server?.address?.() ?? null,
     close: (cb) => {
-      server?.close?.(cb)
+      if (server) {
+        server.close?.(cb)
+        return
+      }
+      closeRequested = true
+      pendingClose = cb
     },
     on: (event, listener) => {
       const bucket = listeners.get(event) ?? []
@@ -72,15 +90,31 @@ function serveNode(
     for (const fn of listeners.get(event) ?? []) fn(...args)
   }
 
+  // Express calls the listen callback for both success and failure (`server.once('error',
+  // done)` wraps the same function passed to `.listen()`), and guards it to fire at most
+  // once since only one of 'listening' / 'error' ever actually happens.
+  let callbackCalled = false
+  const callOnce = (err?: unknown): void => {
+    if (callbackCalled) return
+    callbackCalled = true
+    callback?.(err)
+  }
+
   import('@hono/node-server')
     .then(({ serve: honoServe }) => {
       server = honoServe({ fetch: app.fetch, port, hostname }, (info: unknown) => {
-        callback?.()
+        callOnce()
         emit('listening', info)
       }) as typeof server
+      server?.on?.('error', (err: unknown) => {
+        callOnce(err)
+        emit('error', err)
+      })
+      if (closeRequested) server?.close?.(pendingClose)
     })
     .catch((err: unknown) => {
       report('EXPHONO_E001', { context: 'app.listen' })
+      callOnce(err)
       emit('error', err)
     })
 
