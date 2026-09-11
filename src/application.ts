@@ -513,7 +513,9 @@ export function createApplication(compatDefault: CompatMode = '5'): Application 
   app.listen = (...args: unknown[]) => {
     const port = typeof args[0] === 'number' ? args[0] : undefined
     const hostname = typeof args[1] === 'string' ? args[1] : undefined
-    const callback = args.find((a) => typeof a === 'function') as (() => void) | undefined
+    const callback = args.find((a) => typeof a === 'function') as
+      | ((err?: unknown) => void)
+      | undefined
     return serve(app, port, hostname, callback)
   }
 
