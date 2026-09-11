@@ -259,7 +259,11 @@ function makeParser(
       return
     }
     if (!typeMatches(req, wanted)) {
-      if (compat === '4') req.body = emptyValue()
+      // body-parser's own default is the plain `req.body = req.body || {}` set before even
+      // this check runs -- not the parser-specific empty value (an empty Buffer for raw(),
+      // '' for text()) -- so express.raw()/text() skipping a mismatched type still leaves
+      // req.body as {}, same as json()/urlencoded().
+      if (compat === '4') req.body = {}
       next()
       return
     }
