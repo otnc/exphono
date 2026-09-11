@@ -5,7 +5,7 @@
  */
 
 import { createServer } from 'node:http'
-import { kActualStatus, kNodeStream, kRemoteAddress } from '../object-model.js'
+import { kActualStatus, kNodeStream, kRawUrl, kRemoteAddress } from '../object-model.js'
 
 export interface ServeTarget {
   fetch(request: Request, env?: unknown, ctx?: unknown): Promise<Response>
@@ -152,6 +152,9 @@ async function toFetchRequest(req: NodeIncomingMessage): Promise<Request> {
   }
   // Kept even for a bodyless method's Request (which cannot carry `init.body` at all) so connect-style middleware can still read the raw bytes via `req.on('data', ...)`.
   Object.defineProperty(request, kNodeStream, { value: req, configurable: true })
+  if (req.url !== undefined) {
+    Object.defineProperty(request, kRawUrl, { value: req.url, configurable: true })
+  }
   return request
 }
 
