@@ -24,3 +24,6 @@ jobs:
       - run: pnpm run ci
       - run: pnpm run typecheck
       - run: pnpm run test
+      - run: pnpm run build
+      - run: node test/express-suite/run.js
+      - run: node test/express-suite/run.js --v4
