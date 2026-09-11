@@ -535,6 +535,11 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
     const req = this.req
     if (!req) throw new Error('res.sendFile requires a request')
 
+    // Express always wires this from the app setting, regardless of what (if anything)
+    // the caller passed for `options.etag` -- there's no per-call override.
+    const app = this.app as { enabled?: (key: string) => boolean } | undefined
+    opts.etag = app?.enabled?.('etag') ?? true
+
     // Express re-encodes the raw filesystem path with `encodeURI` before handing it to `send`, so that a literal `%` or space in the path round-trips through the decodeURIComponent() that `send` applies internally instead of being misread as an escape sequence.
     sendFile(req, this, encodeURI(path), opts)
       .then(() => cb?.())
