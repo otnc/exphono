@@ -1,8 +1,7 @@
 /**
  * ETag generation for `res.send()`, matching the `etag` npm package byte-for-byte.
  *
- * `res.send()` is synchronous, but WebCrypto only offers an async digest, so this is a
- * plain SHA-1 implementation rather than a `crypto.subtle` call.
+ * `res.send()` is synchronous, but WebCrypto only offers an async digest, so this is a plain SHA-1 implementation rather than a `crypto.subtle` call.
  */
 
 import { toBase64 } from './hmac.js'

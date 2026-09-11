@@ -132,8 +132,7 @@ export const requestProto = {} as ExpRequest
 function headerOf(req: ExpRequest, name: string): string | string[] | undefined {
   const lower = String(name).toLowerCase()
 
-  // `req.headers` is a plain object once materialized (see the lazy getter below), and
-  // Express code sometimes mutates it directly expecting `req.get()` to see the change.
+  // `req.headers` is a plain object once materialized (see the lazy getter below), and Express code sometimes mutates it directly expecting `req.get()` to see the change.
   if (Object.hasOwn(req, 'headers')) {
     const materialized = (req.headers as Record<string, string | string[] | undefined>)[lower]
     if (materialized !== undefined) return materialized
@@ -222,8 +221,7 @@ const protoMethods: Record<string, (this: ExpRequest, ...args: never[]) => unkno
     return this.acceptsLanguages(...(langs.flat() as string[]))
   },
 
-  // Node `Readable`-like surface: connect-style middleware reads the request body
-  // directly via `req.on('data'/'end')` rather than through a body-parser.
+  // Node `Readable`-like surface: connect-style middleware reads the request body directly via `req.on('data'/'end')` rather than through a body-parser.
 
   on(this: ExpRequest, event: string, listener: (...a: unknown[]) => void) {
     const stream = nodeStreamOf(this)
@@ -312,9 +310,7 @@ interface NodeReadableLike {
 }
 
 /**
- * On Node, the real `IncomingMessage` behind this request -- kept around because a
- * bodyless method's Fetch `Request` (GET, HEAD, ...) can't carry `init.body` at all, yet
- * connect-style middleware still needs to read those raw bytes directly.
+ * On Node, the real `IncomingMessage` behind this request -- kept around because a bodyless method's Fetch `Request` (GET, HEAD, ...) can't carry `init.body` at all, yet connect-style middleware still needs to read those raw bytes directly.
  */
 function nodeStreamOf(req: ExpRequest): NodeReadableLike | undefined {
   const raw = req[kState].ctx.req.raw as unknown as Record<symbol, unknown>
@@ -408,9 +404,7 @@ defineLazyGetter(requestProto, 'rawHeaders', function (this: ExpRequest) {
 })
 
 defineLazyGetter(requestProto, 'protocol', function (this: ExpRequest) {
-  // Reads back from the socket rather than the parsed URL, so test code that flips
-  // req.socket.encrypted after the fact (a common idiom for simulating TLS termination
-  // at a proxy) is actually reflected here, the way it would be against a real socket.
+  // Reads back from the socket rather than the parsed URL, so test code that flips req.socket.encrypted after the fact (a common idiom for simulating TLS termination at a proxy) is actually reflected here, the way it would be against a real socket.
   const direct = this.socket.encrypted ? 'https' : 'http'
   if (!trustFn(this)(this.socket.remoteAddress ?? '', 0)) return direct
   const forwarded = str(headerOf(this, 'x-forwarded-proto'))
@@ -436,9 +430,7 @@ defineLazyGetter(requestProto, 'hostname', function (this: ExpRequest) {
 })
 
 /**
- * `undefined` when there is genuinely no Host header to report, matching Express -- a
- * request built from a URL always has *some* host to fall back to, but the Host header
- * itself, once materialized onto req.headers, is the one Express code actually reads.
+ * `undefined` when there is genuinely no Host header to report, matching Express -- a request built from a URL always has *some* host to fall back to, but the Host header itself, once materialized onto req.headers, is the one Express code actually reads.
  */
 function hostHeader(req: ExpRequest): string | undefined {
   if (trustFn(req)(req.socket.remoteAddress ?? '', 0)) {
@@ -497,8 +489,7 @@ defineLazyGetter(requestProto, 'subdomains', function (this: ExpRequest) {
   const hostname = this.hostname
   if (!hostname) return []
   const offset = Number(appSetting(this, 'subdomain offset') ?? 2)
-  // An IP address has no subdomains to split -- it's kept whole, so an offset of 0
-  // (rather than the default 2) still reports it
+  // An IP address has no subdomains to split -- it's kept whole, so an offset of 0 (rather than the default 2) still reports it
   const isIp = /^[\d.]+$/.test(hostname) || hostname.startsWith('[')
   const parts = isIp ? [hostname] : hostname.split('.').reverse()
   return parts.slice(offset)

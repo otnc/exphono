@@ -1,15 +1,10 @@
 #!/usr/bin/env node
 /**
- * Runs the express test suite against exphono and compares the result with the recorded
- * baseline.
+ * Runs the express test suite against exphono and compares the result with the recorded baseline.
  *
- * The number of failures is the compatibility debt: it is expected to shrink, and the
- * run fails if it grows. Pass `--update` after deliberately changing it.
+ * The number of failures is the compatibility debt: it is expected to shrink, and the run fails if it grows. Pass `--update` after deliberately changing it.
  *
- * A few of the express tests are timing-sensitive, so the count drifts by one or two
- * between runs of identical code. TOLERANCE absorbs that; a real regression moves the
- * number much further. The counts are also platform-dependent, so a baseline recorded
- * on one OS will not match another exactly.
+ * A few of the express tests are timing-sensitive, so the count drifts by one or two between runs of identical code. TOLERANCE absorbs that; a real regression moves the number much further. The counts are also platform-dependent, so a baseline recorded on one OS will not match another exactly.
  *
  *   node test/express-suite/run.js          # check against the baseline
  *   node test/express-suite/run.js --update # record the current numbers
@@ -48,8 +43,7 @@ try {
       '--exit',
       `${suiteDir.replace(/\\/g, '/')}/*.js`,
     ],
-    // Run from the suite directory itself: a few tests hard-code 'test/fixtures/...'
-    // relative paths, matching the original express package's own layout.
+    // Run from the suite directory itself: a few tests hard-code 'test/fixtures/...' relative paths, matching the original express package's own layout.
     { cwd: suiteDir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 },
   )
 } catch (e) {

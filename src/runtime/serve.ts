@@ -59,11 +59,7 @@ function serveNode(
         on?: (event: string, listener: (...args: unknown[]) => void) => unknown
       }
     | undefined
-  // The underlying node server is only created once the dynamic import below resolves
-  // (kept dynamic so bundlers don't drag @hono/node-server into the edge build), so a
-  // .close() called synchronously right after app.listen() -- as Express's own tests do
-  // -- would otherwise land while `server` is still undefined and silently drop the
-  // callback. Replayed against the real server once it exists instead.
+  // The underlying node server is only created once the dynamic import below resolves (kept dynamic so bundlers don't drag @hono/node-server into the edge build), so a .close() called synchronously right after app.listen() -- as Express's own tests do -- would otherwise land while `server` is still undefined and silently drop the callback. Replayed against the real server once it exists instead.
   let pendingClose: (() => void) | undefined
   let closeRequested = false
 
@@ -90,9 +86,7 @@ function serveNode(
     for (const fn of listeners.get(event) ?? []) fn(...args)
   }
 
-  // Express calls the listen callback for both success and failure (`server.once('error',
-  // done)` wraps the same function passed to `.listen()`), and guards it to fire at most
-  // once since only one of 'listening' / 'error' ever actually happens.
+  // Express calls the listen callback for both success and failure (`server.once('error', done)` wraps the same function passed to `.listen()`), and guards it to fire at most once since only one of 'listening' / 'error' ever actually happens.
   let callbackCalled = false
   const callOnce = (err?: unknown): void => {
     if (callbackCalled) return
@@ -159,11 +153,7 @@ export interface NodeServerResponse {
 const BODYLESS = new Set(['GET', 'HEAD', 'DELETE', 'OPTIONS', 'TRACE'])
 
 /**
- * The Fetch standard forbids constructing a `Request` with these methods at all, since
- * they carry protocol-level meaning `fetch()` itself can't express. Express has no such
- * restriction, so a real Node request still needs to route on the real method — built as
- * `GET` and then shadowed with an own property, since `Request.prototype.method` is a
- * getter that an instance property takes priority over.
+ * The Fetch standard forbids constructing a `Request` with these methods at all, since they carry protocol-level meaning `fetch()` itself can't express. Express has no such restriction, so a real Node request still needs to route on the real method — built as `GET` and then shadowed with an own property, since `Request.prototype.method` is a getter that an instance property takes priority over.
  */
 const FORBIDDEN_METHODS = new Set(['CONNECT', 'TRACE', 'TRACK'])
 
@@ -171,10 +161,7 @@ async function toFetchRequest(req: NodeIncomingMessage): Promise<Request> {
   const method = (req.method ?? 'GET').toUpperCase()
   const scheme = req.socket?.encrypted ? 'https' : 'http'
   const host = (req.headers.host as string | undefined) ?? 'localhost'
-  // Concatenated rather than resolved via `new URL(path, base)`: a request-target starting
-  // with `//` (e.g. `GET //todo@txt`) is a valid, if unusual, origin-form path, but the
-  // two-argument URL constructor treats a leading `//` as a network-path reference and
-  // reparses it as a different authority instead of keeping it as the pathname.
+  // Concatenated rather than resolved via `new URL(path, base)`: a request-target starting with `//` (e.g. `GET //todo@txt`) is a valid, if unusual, origin-form path, but the two-argument URL constructor treats a leading `//` as a network-path reference and reparses it as a different authority instead of keeping it as the pathname.
   const url = new URL(`${scheme}://${host}${req.url ?? '/'}`)
 
   const headers = new Headers()
@@ -205,8 +192,7 @@ async function toFetchRequest(req: NodeIncomingMessage): Promise<Request> {
       configurable: true,
     })
   }
-  // Kept even for a bodyless method's Request (which cannot carry `init.body` at all) so
-  // connect-style middleware can still read the raw bytes via `req.on('data', ...)`.
+  // Kept even for a bodyless method's Request (which cannot carry `init.body` at all) so connect-style middleware can still read the raw bytes via `req.on('data', ...)`.
   Object.defineProperty(request, kNodeStream, { value: req, configurable: true })
   return request
 }

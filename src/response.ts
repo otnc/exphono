@@ -32,11 +32,7 @@ interface ResponseState {
   phase: Phase
   headers: Headers
   /**
-   * `Headers` (the Fetch standard) has no concept of an array value: appending the same
-   * key repeatedly just joins them with a comma on read. Node's `res.setHeader`/`getHeader`
-   * do remember the original array, though, and Express's res.get()/getHeader() rely on
-   * getting it back verbatim -- so the array as given is kept here, keyed lower-case,
-   * alongside the joined form actually written to `headers`.
+   * `Headers` (the Fetch standard) has no concept of an array value: appending the same key repeatedly just joins them with a comma on read. Node's `res.setHeader`/`getHeader` do remember the original array, though, and Express's res.get()/getHeader() rely on getting it back verbatim -- so the array as given is kept here, keyed lower-case, alongside the joined form actually written to `headers`.
    */
   rawValues: Map<string, string | string[]>
   chunks: Uint8Array[]
@@ -236,8 +232,7 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
   append(this: ExpResponse, field: string, value: string | string[]) {
     const s = st(this)
     const key = String(field).toLowerCase()
-    // A prior set(name, array) leaves a raw array cached; appending onto it must
-    // extend that array rather than let the stale cache shadow the new value.
+    // A prior set(name, array) leaves a raw array cached; appending onto it must extend that array rather than let the stale cache shadow the new value.
     const existing = s.rawValues.get(key)
     const values = Array.isArray(value) ? value : [value]
     if (existing !== undefined) {
@@ -262,8 +257,7 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
       if (typeof field === 'string' && field.length === 0) {
         throw new TypeError('field argument is required')
       }
-      // An empty array has nothing to add and leaves an unset header unset, matching
-      // the `vary` package rather than writing out an empty Vary header.
+      // An empty array has nothing to add and leaves an unset header unset, matching the `vary` package rather than writing out an empty Vary header.
       return this
     }
 
@@ -335,14 +329,12 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
     const s = st(this)
     assertOpen(this, 'send')
 
-    // Express only populates Content-Length / ETag when a body argument was actually
-    // given — a bare res.send() sends neither, unlike res.send(null)'s empty string.
+    // Express only populates Content-Length / ETag when a body argument was actually given — a bare res.send() sends neither, unlike res.send(null)'s empty string.
     const bodyProvided = body !== undefined
 
     let payload: Uint8Array
     if (typeof body === 'string') {
-      // A string body is always written as utf-8, overriding any charset already on the
-      // content-type rather than just filling one in when none is present.
+      // A string body is always written as utf-8, overriding any charset already on the content-type rather than just filling one in when none is present.
       if (!s.headers.has('content-type')) this.set('content-type', 'text/html')
       const existing = s.headers.get('content-type')
       if (existing) setHeaderValue(this, 'content-type', forceUtf8(existing))
@@ -503,9 +495,7 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
     const req = this.req
     const next = req?.next
     const keys = Object.keys(handlers).filter((k) => k !== 'default')
-    // A handler key may carry parameters ('text/plain; charset=utf-8'): negotiation
-    // matches on the bare type, so that's stripped off before it's offered up, and the
-    // stripped form is also what ends up in Content-Type / a 406's error.types.
+    // A handler key may carry parameters ('text/plain; charset=utf-8'): negotiation matches on the bare type, so that's stripped off before it's offered up, and the stripped form is also what ends up in Content-Type / a 406's error.types.
     const bareKeys = keys.map((k) => (k.split(';')[0] ?? k).trim())
     const chosen = keys.length > 0 ? req?.accepts(...bareKeys) : false
     const chosenValue = Array.isArray(chosen) ? chosen[0] : chosen
@@ -543,10 +533,7 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
     const req = this.req
     if (!req) throw new Error('res.sendFile requires a request')
 
-    // Express re-encodes the raw filesystem path with `encodeURI` before handing it to
-    // `send`, so that a literal `%` or space in the path round-trips through the
-    // decodeURIComponent() that `send` applies internally instead of being misread as an
-    // escape sequence.
+    // Express re-encodes the raw filesystem path with `encodeURI` before handing it to `send`, so that a literal `%` or space in the path round-trips through the decodeURIComponent() that `send` applies internally instead of being misread as an escape sequence.
     sendFile(req, this, encodeURI(path), opts)
       .then(() => cb?.())
       .catch((err: unknown) => {
@@ -686,9 +673,7 @@ Object.defineProperties(responseProto, {
     configurable: true,
     get(this: ExpResponse) {
       const s = st(this)
-      // Node flips this the moment writeHead() runs, not only once the body starts
-      // flowing -- headWritten tracks that; phase only moves once a write/end actually
-      // begins, which would otherwise miss the writeHead()-then-nothing-yet window.
+      // Node flips this the moment writeHead() runs, not only once the body starts flowing -- headWritten tracks that; phase only moves once a write/end actually begins, which would otherwise miss the writeHead()-then-nothing-yet window.
       return s.headWritten || s.phase !== 'idle'
     },
   },
@@ -746,8 +731,7 @@ function finish(res: ExpResponse, payload: Uint8Array): void {
   commitHead(res)
   s.phase = 'ended'
 
-  // A HEAD response still reports the headers a GET would have sent -- only the body
-  // bytes are withheld -- whereas 204/304 genuinely have neither a body nor these headers.
+  // A HEAD response still reports the headers a GET would have sent -- only the body bytes are withheld -- whereas 204/304 genuinely have neither a body nor these headers.
   const suppressHeaders = res.statusCode === 204 || res.statusCode === 304
   const noBody = suppressHeaders || res.req?.method === 'HEAD'
   const body = noBody || payload.byteLength === 0 ? null : payload
@@ -772,9 +756,7 @@ function startStreaming(res: ExpResponse): void {
 }
 
 /**
- * The Fetch `Response` constructor rejects a status outside 200-599, but Express code sets
- * things like `res.status(101)` freely. Out-of-range values are built with a placeholder
- * and the real status is stashed for the Node adapter to substitute back in.
+ * The Fetch `Response` constructor rejects a status outside 200-599, but Express code sets things like `res.status(101)` freely. Out-of-range values are built with a placeholder and the real status is stashed for the Node adapter to substitute back in.
  */
 function buildResponse(body: BodyInit | null, res: ExpResponse, headers: Headers): Response {
   const code = res.statusCode

@@ -86,9 +86,7 @@ export function serveStatic(root: string, options?: StaticOptions): RequestHandl
       return
     }
 
-    // Mirrors `send`'s own mount-point handling: at the mount root, without a trailing
-    // slash on the real URL, the lookup path is emptied so the directory check below still
-    // fires and redirects relative to the original (mount-prefixed) URL.
+    // Mirrors `send`'s own mount-point handling: at the mount root, without a trailing slash on the real URL, the lookup path is emptied so the directory check below still fires and redirects relative to the original (mount-prefixed) URL.
     const atMountRoot = req.path === '/' && !originalPathname(req.originalUrl).endsWith('/')
     const path = atMountRoot ? '' : req.path
 
@@ -96,9 +94,7 @@ export function serveStatic(root: string, options?: StaticOptions): RequestHandl
       .then(() => undefined)
       .catch((err: unknown) => {
         const sendErr = err as SendError
-        // A directory hit only turns into a redirect when the request itself had no
-        // trailing slash — `send` re-checks this even after routing through the
-        // directory handler, since a mount-root lookup can still end up with one.
+        // A directory hit only turns into a redirect when the request itself had no trailing slash — `send` re-checks this even after routing through the directory handler, since a mount-root lookup can still end up with one.
         if (sendErr?.isDirectory && redirect && !path.endsWith('/')) {
           redirectToTrailingSlash(req, res)
           return
