@@ -525,7 +525,9 @@ function sendOptionsResponse(
   next: NextFunction,
 ): void {
   try {
-    const allow = Array.from(new Set(methods)).sort().join(compat === '4' ? ',' : ', ')
+    const allow = Array.from(new Set(methods))
+      .sort()
+      .join(compat === '4' ? ',' : ', ')
     res.set('allow', allow)
     res.set('content-length', String(allow.length))
     res.set('content-type', 'text/plain')
