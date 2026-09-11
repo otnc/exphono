@@ -27,6 +27,18 @@ export const kActualStatus = Symbol('exphono.actualStatus')
 export const kNodeStream = Symbol('exphono.nodeStream')
 
 /**
+ * The exact request-target Node received, before the `Request` constructor's mandatory
+ * WHATWG URL parsing collapses dot-segments (`/a/../b` -> `/b`) as a normal part of
+ * building `request.url`. `req.originalUrl` is meant to be that untouched original
+ * string -- among other things, it's what lets `express.static`'s own traversal check
+ * (which Express's `send` package deliberately keys off the *raw* path, not a
+ * normalized one) actually see a `..` segment instead of one the URL parser already
+ * quietly resolved away. Node-only: on Workers/Deno/Bun the platform builds the
+ * `Request` itself before ExpHono ever sees it, so there's nothing to stash here.
+ */
+export const kRawUrl = Symbol('exphono.rawUrl')
+
+/**
  * Define a getter on the prototype that caches its result as an own property on first access, so derived values are computed once per request without leaking between them.
  */
 export function defineLazyGetter<T extends object>(
