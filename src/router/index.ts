@@ -335,7 +335,9 @@ export function createRouter(options: RouterOptions = {}): RouterInstance {
     const { path, handlers } = splitPathAndHandlers(args)
     if (handlers.length === 0) {
       throw new TypeError(
-        opts.compat === '4' ? 'Router.use() requires a middleware function' : 'argument handler is required',
+        opts.compat === '4'
+          ? 'Router.use() requires a middleware function'
+          : 'argument handler is required',
       )
     }
     for (const h of handlers) {
