@@ -326,9 +326,30 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
     return this.send(stringifyJson(this.app, body))
   },
 
-  send(this: ExpResponse, body?: unknown) {
+  send(this: ExpResponse, ...args: unknown[]) {
     const s = st(this)
     assertOpen(this, 'send')
+
+    let body = args[0]
+    if (st(this).compat === '4') {
+      if (args.length === 1 && typeof args[0] === 'number') {
+        // res.send(status): deprecated shorthand for res.sendStatus(status)
+        this.statusCode = args[0]
+        if (!s.headers.has('content-type')) this.type('txt')
+        body = statusText(args[0])
+      } else if (args.length === 2) {
+        const [a, b] = args
+        if (typeof a !== 'number' && typeof b === 'number') {
+          // res.send(body, status) backwards compat
+          this.statusCode = b
+          body = a
+        } else {
+          // res.send(status, body) backwards compat
+          this.statusCode = a as number
+          body = b
+        }
+      }
+    }
 
     // Express only populates Content-Length / ETag when a body argument was actually given — a bare res.send() sends neither, unlike res.send(null)'s empty string.
     const bodyProvided = body !== undefined
@@ -607,11 +628,18 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
   },
 
   /**
-   * Lowercase `res.sendfile` was removed in Express 5; kept for compat=4.
+   * Lowercase `res.sendfile` was removed in Express 5; kept for compat=4. Unlike the
+   * modern `res.sendFile`, a relative path here resolves against the process's cwd
+   * instead of throwing -- `res.sendFile`'s absolute-path requirement was a deliberate
+   * safety fix added after `res.sendfile` already shipped this looser behavior.
    */
   sendfile(this: ExpResponse, path: string, options?: unknown, callback?: (e?: unknown) => void) {
     if (st(this).compat !== '4') report('EXPHONO_E008', { context: 'res.sendfile' })
-    return this.sendFile(path, options, callback)
+    const opts = (typeof options === 'object' && options !== null ? options : {}) as SendOptions
+    if (opts.root) return this.sendFile(path, options, callback)
+    // path.resolve() is a no-op for an already-absolute path, so this covers both cases.
+    resolvePath(path).then((fullPath) => this.sendFile(fullPath, options, callback))
+    return this
   },
 
   render(
