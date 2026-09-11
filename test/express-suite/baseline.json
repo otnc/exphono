@@ -6,8 +6,8 @@
     "recorded": "2026-09-11"
   },
   "express4": {
-    "passing": 1148,
-    "failing": 50,
+    "passing": 1152,
+    "failing": 46,
     "total": 1198,
     "recorded": "2026-09-11"
   }

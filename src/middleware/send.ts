@@ -271,7 +271,7 @@ export async function sendFile(
   const [file, stat] = await locate(target, options, urlPath.endsWith('/'))
 
   if (!res.get('content-type')) {
-    const type = lookupMimeType((await extname(file)).replace(/^\./, ''))
+    const type = lookupMimeType((await extname(file)).replace(/^\./, ''), res[kState].compat)
     // Not res.type(): Express's own res.set()/res.type() explicitly lowercase the charset they add, but `send`'s own content-type assignment doesn't -- it's raw from the (compat=4-era) mime-db, uppercase 'UTF-8'. setHeader bypasses that lowercasing.
     res.setHeader('content-type', withCharset(type, res[kState].compat))
   }
