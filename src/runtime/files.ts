@@ -28,8 +28,14 @@ export async function statFile(path: string): Promise<FileStat | null> {
       isFile: s.isFile(),
       isDirectory: s.isDirectory(),
     }
-  } catch {
-    return null
+  } catch (err) {
+    // ENOENT/ENOTDIR mean "there's genuinely nothing here" -- send.ts's `locate()` tries
+    // the next index/extension candidate, or reports a plain 404, for those. Anything
+    // else (ENAMETOOLONG, EACCES, ...) is a real problem with the request rather than a
+    // missing file, and callers need the original error to report it accurately.
+    const code = (err as NodeJS.ErrnoException)?.code
+    if (code === 'ENOENT' || code === 'ENOTDIR') return null
+    throw err
   }
 }
 

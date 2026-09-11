@@ -620,12 +620,7 @@ export function createRequest({ ctx, proto, compat }: CreateRequestOptions): Exp
   const req = Object.create(proto) as ExpRequest
   const parsed = new URL(ctx.req.raw.url)
   const url = parsed.pathname + parsed.search
-  // On Node, the exact request-target the client sent, dot-segments and all -- `parsed`
-  // above already had them collapsed by the Request constructor's own URL parsing (see
-  // kRawUrl). req.originalUrl is meant to be the client's literal string, which matters
-  // for things like express.static's traversal check (send expects to see a raw `..`
-  // segment, not one already resolved away). Unavailable off Node (Workers/Deno/Bun hand
-  // ExpHono an already-built Request), so those keep the normalized fallback.
+  // On Node, the exact request-target the client sent, dot-segments and all -- `parsed` above already had them collapsed by the Request constructor's own URL parsing (see kRawUrl). req.originalUrl is meant to be the client's literal string, which matters for things like express.static's traversal check (send expects to see a raw `..` segment, not one already resolved away). Unavailable off Node (Workers/Deno/Bun hand ExpHono an already-built Request), so those keep the normalized fallback.
   const rawUrl = (ctx.req.raw as unknown as Record<symbol, string | undefined>)[kRawUrl]
 
   Object.defineProperty(req, kState, {

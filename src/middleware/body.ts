@@ -242,10 +242,7 @@ function makeParser(
   const wanted = options.type ?? defaultType
   const inflate = options.inflate ?? true
   const defaultCharset = (options.defaultCharset ?? 'utf-8').toLowerCase()
-  // Express 4's body-parser always initializes req.body to an empty value up front, even
-  // when the content-type doesn't match and nothing actually gets parsed. Express 5's
-  // newer body-parser dependency only sets it once parsing actually happens, leaving
-  // req.body untouched (usually undefined) otherwise.
+  // Express 4's body-parser always initializes req.body to an empty value up front, even when the content-type doesn't match and nothing actually gets parsed. Express 5's newer body-parser dependency only sets it once parsing actually happens, leaving req.body untouched (usually undefined) otherwise.
   const compat = options.compat ?? '5'
 
   return (req: ExpRequest, res: ExpResponse, next: NextFunction) => {
@@ -259,10 +256,7 @@ function makeParser(
       return
     }
     if (!typeMatches(req, wanted)) {
-      // body-parser's own default is the plain `req.body = req.body || {}` set before even
-      // this check runs -- not the parser-specific empty value (an empty Buffer for raw(),
-      // '' for text()) -- so express.raw()/text() skipping a mismatched type still leaves
-      // req.body as {}, same as json()/urlencoded().
+      // body-parser's own default is the plain `req.body = req.body || {}` set before even this check runs -- not the parser-specific empty value (an empty Buffer for raw(), '' for text()) -- so express.raw()/text() skipping a mismatched type still leaves req.body as {}, same as json()/urlencoded().
       if (compat === '4') req.body = {}
       next()
       return

@@ -88,11 +88,7 @@ export function serveStatic(root: string, options?: StaticOptions): RequestHandl
 
     // Mirrors `send`'s own mount-point handling: at the mount root, without a trailing slash on the real URL, the lookup path is emptied so the directory check below still fires and redirects relative to the original (mount-prefixed) URL.
     const atMountRoot = req.path === '/' && !originalPathname(req.originalUrl).endsWith('/')
-    // req.path has already been through the router's own URL parsing, which -- as a side
-    // effect of just being a normal URL parser -- silently collapses `..` segments
-    // (`/a/../b` -> `/b`) before send's own traversal check ever runs. req.originalUrl is
-    // the client's literal, unresolved string (on Node; elsewhere the platform hands
-    // ExpHono an already-parsed Request, so this degrades to the same normalized value).
+    // req.path has already been through the router's own URL parsing, which -- as a side effect of just being a normal URL parser -- silently collapses `..` segments (`/a/../b` -> `/b`) before send's own traversal check ever runs. req.originalUrl is the client's literal, unresolved string (on Node; elsewhere the platform hands ExpHono an already-parsed Request, so this degrades to the same normalized value).
     const rawPath = originalPathname(req.originalUrl).slice(req.baseUrl.length) || '/'
     const path = atMountRoot ? '' : rawPath
 

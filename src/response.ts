@@ -218,8 +218,7 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
     }
     if (field.toLowerCase() === 'content-type') {
       if (Array.isArray(value)) throw new TypeError('Content-Type cannot be set to an Array')
-      // Always lowercase, even under compat=4: Express's own res.set()/res.header() explicitly lowercases the charset it looks up, unlike send's own content-type
-      // assignment (see sendFile() in send.ts), which is where the v4-only uppercase 'UTF-8' actually comes from.
+      // Always lowercase, even under compat=4: Express's own res.set()/res.header() explicitly lowercases the charset it looks up, unlike send's own content-type assignment (see sendFile() in send.ts), which is where the v4-only uppercase 'UTF-8' actually comes from.
       setHeaderValue(this, field, withCharset(String(value)))
       return this
     }
@@ -632,10 +631,7 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
   },
 
   /**
-   * Lowercase `res.sendfile` was removed in Express 5; kept for compat=4. Unlike the
-   * modern `res.sendFile`, a relative path here resolves against the process's cwd
-   * instead of throwing -- `res.sendFile`'s absolute-path requirement was a deliberate
-   * safety fix added after `res.sendfile` already shipped this looser behavior.
+   * Lowercase `res.sendfile` was removed in Express 5; kept for compat=4. Unlike the modern `res.sendFile`, a relative path here resolves against the process's cwd instead of throwing -- `res.sendFile`'s absolute-path requirement was a deliberate safety fix added after `res.sendfile` already shipped this looser behavior.
    */
   sendfile(this: ExpResponse, path: string, options?: unknown, callback?: (e?: unknown) => void) {
     if (st(this).compat !== '4') report('EXPHONO_E008', { context: 'res.sendfile' })
@@ -901,12 +897,7 @@ function escapeLineSeparators(json: string): string {
 }
 
 /**
- * Express 4's deprecated `res.json(status, obj)` / `res.json(obj, status)` two-argument
- * forms (also `res.jsonp()`): with exactly two arguments, whichever one is a number is the
- * status and the other is the body -- the second argument wins the tie when both are
- * numbers (`res.json(200, 201)` sends body `200` with status `201`). Express 5 removed
- * this form entirely -- a second argument there is simply ignored, same as calling any
- * other function with an extra argument.
+ * Express 4's deprecated `res.json(status, obj)` / `res.json(obj, status)` two-argument forms (also `res.jsonp()`): with exactly two arguments, whichever one is a number is the status and the other is the body -- the second argument wins the tie when both are numbers (`res.json(200, 201)` sends body `200` with status `201`). Express 5 removed this form entirely -- a second argument there is simply ignored, same as calling any other function with an extra argument.
  */
 function resolveLegacyStatusArg(res: ExpResponse, args: unknown[]): unknown {
   if (args.length !== 2 || st(res).compat !== '4') return args[0]
