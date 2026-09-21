@@ -8,7 +8,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 
-export const VERSIONS = { 4: '4.22.2', 5: '5.2.1' }
+export const VERSIONS = { 4: '4.22.3', 5: '5.2.1' }
 
 const root = resolve(import.meta.dirname, '../..')
 // Deliberately not dot-prefixed: `res.sendFile` with no `root` option checks every ancestor directory name for a leading dot (matching the real `send` package), so a dot-prefixed vendor directory would make its own path look like a dotfile.
