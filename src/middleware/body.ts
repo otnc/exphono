@@ -5,7 +5,7 @@
  */
 
 import type { CompatMode } from '../inventory.js'
-import { kState } from '../object-model.js'
+import { kNodeStream, kState } from '../object-model.js'
 import type { ExpRequest } from '../request.js'
 import type { ExpResponse } from '../response.js'
 import type { NextFunction, RequestHandler } from '../router/index.js'
@@ -106,7 +106,21 @@ class BodyError extends Error {
 
 const INFLATABLE = new Set(['gzip', 'deflate'])
 
-async function readBytes(req: ExpRequest, limit: number, inflate: boolean): Promise<Uint8Array> {
+/** Whether something already read the request body to its end, through the Node stream or the pumped Fetch body. */
+function isBodyConsumed(req: ExpRequest): boolean {
+  const raw = req[kState].ctx.req.raw as unknown as Record<
+    symbol,
+    { readableEnded?: boolean } | undefined
+  >
+  return req[kState].pumpEnded || raw[kNodeStream]?.readableEnded === true
+}
+
+async function readBytes(
+  req: ExpRequest,
+  limit: number,
+  inflate: boolean,
+  compat: CompatMode,
+): Promise<Uint8Array> {
   const declared = req.get('content-length')
   const hasLength = typeof declared === 'string' && declared !== ''
 
@@ -121,6 +135,11 @@ async function readBytes(req: ExpRequest, limit: number, inflate: boolean): Prom
       err.limit = limit
       throw err
     }
+  }
+
+  // Express 4's body-parser (raw-body) refuses a stream something else already read to the end; Express 5's does not.
+  if (compat === '4' && isBodyConsumed(req)) {
+    throw new BodyError(500, 'stream.not.readable', 'stream is not readable')
   }
 
   const encoding = String(req.get('content-encoding') ?? 'identity').toLowerCase()
@@ -276,7 +295,7 @@ function makeParser(
       return
     }
 
-    readBytes(req, limit, inflate)
+    readBytes(req, limit, inflate, compat)
       .then((rawBytes) => {
         // Express hands a real Node `Buffer` to `verify` and to `express.raw()`'s result;
         // code that checks `Buffer.isBuffer(req.body)` would otherwise see a plain
@@ -402,7 +421,8 @@ export function raw(options?: BodyOptions): RequestHandler {
 
 export function urlencoded(options?: BodyOptions): RequestHandler {
   const opts = options ?? {}
-  const extended = opts.extended ?? false
+  // body-parser 1.x (Express 4) defaults to the extended parser; Express 5's default is the simple one.
+  const extended = opts.extended ?? opts.compat === '4'
   const parameterLimit = opts.parameterLimit ?? 1000
   if (typeof parameterLimit !== 'number' || Number.isNaN(parameterLimit) || parameterLimit <= 0) {
     throw new TypeError('option parameterLimit must be a positive number')

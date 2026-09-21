@@ -47,6 +47,8 @@ interface RequestState {
   emitter: MiniEmitter
   /** Set once the raw body stream has started being pumped into 'data'/'end' events. */
   pumpStarted: boolean
+  /** Set once the pumped body stream has been read to its end, so a later body parser can tell it was already consumed. */
+  pumpEnded: boolean
   encoding: string | null
 }
 
@@ -327,7 +329,10 @@ function startBodyPump(req: ExpRequest): void {
 
   const body = state.ctx.req.raw.body
   if (!body) {
-    queueMicrotask(() => req.emit('end'))
+    queueMicrotask(() => {
+      state.pumpEnded = true
+      req.emit('end')
+    })
     return
   }
 
@@ -336,6 +341,7 @@ function startBodyPump(req: ExpRequest): void {
     reader.read().then(
       ({ done, value }) => {
         if (done) {
+          state.pumpEnded = true
           req.emit('end')
           return
         }
@@ -478,7 +484,8 @@ defineLazyGetter(requestProto, 'query', function (this: ExpRequest) {
     return Object.create(null) as Record<string, unknown>
   }
 
-  const extended = setting === 'extended'
+  // A missing setting acts like 'extended' under Express 4 (its query middleware falls back to qs).
+  const extended = setting === 'extended' || (setting === undefined && this[kState].compat === '4')
   const parsed = parseUrlencoded(search, extended)
 
   return this[kState].compat === '4' ? { ...parsed } : parsed
@@ -628,6 +635,7 @@ export function createRequest({ ctx, proto, compat }: CreateRequestOptions): Exp
       parsed,
       emitter: new MiniEmitter(),
       pumpStarted: false,
+      pumpEnded: false,
       encoding: null,
     } satisfies RequestState,
     enumerable: false,
