@@ -41,7 +41,7 @@ function download(version) {
   const url = `https://github.com/expressjs/express/archive/refs/tags/v${tag}.tar.gz`
   const tarball = `v${tag}.tar.gz`
   // Run inside vendorRoot with relative paths: tar on Windows reads 'D:\...' as a host
-  execFileSync('curl', ['-sL', url, '-o', tarball], { cwd: vendorRoot, stdio: 'inherit' })
+  execFileSync('curl', ['-fsSL', '--retry', '3', '--retry-all-errors', url, '-o', tarball], { cwd: vendorRoot, stdio: 'inherit' })
   execFileSync('tar', ['xzf', tarball], { cwd: vendorRoot, stdio: 'inherit' })
   return dest
 }
