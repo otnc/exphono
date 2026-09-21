@@ -1,7 +1,7 @@
 /**
  * Single source of truth for every public API ExpHono exposes.
  *
- * Drives the surface tests, the compatibility table and the migration CLI. Compiled from the express 4.22.2 / 5.2.1 / router 2.2.0 sources.
+ * Drives the surface tests, the compatibility table and the migration CLI. Compiled from the express 4.22.3 / 5.2.1 / router 2.2.0 sources.
  */
 
 /** How faithfully an API is reproduced. */
