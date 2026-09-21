@@ -6,6 +6,7 @@
  */
 
 import type { CompatMode } from '../inventory.js'
+import { pathToRegexpV4 } from './path-to-regexp-v4.js'
 
 export type PathSpec = string | RegExp | (string | RegExp)[]
 
@@ -52,6 +53,14 @@ function compileOne(path: string | RegExp, opts: MatcherOptions): Compiled | 'fa
       // Express 5 rejects inline regular expressions; ExpHono accepts them anyway
     }
     return { regexp: path, keys: [] }
+  }
+  if (opts.compat === '4') {
+    const { regexp, keys } = pathToRegexpV4(path, {
+      strict: opts.strict,
+      end: opts.end,
+      sensitive: opts.caseSensitive,
+    })
+    return { regexp, keys: keys.map((k) => ({ name: String(k.name), wildcard: false })) }
   }
   // Under strict:false the router package strips a trailing slash before compiling (its `loosen`), then relies on the appended '/?' to accept it back optionally. Without this, '/foo/bob/' would demand the literal slash AND another one after it.
   const loosened = opts.strict || path === '/' ? path : path.replace(/\/+$/, '')
