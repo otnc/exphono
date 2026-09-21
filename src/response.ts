@@ -160,10 +160,12 @@ function setHeaderValue(res: ExpResponse, name: string, value: string | string[]
 
 const methods: Partial<ExpResponse> & Record<string, unknown> = {
   status(this: ExpResponse, code: number) {
-    if (!Number.isInteger(code) || code < 100 || code > 999) {
+    // Express 4 hands the value straight to Node, which truncates it (`'410'` and `410.1` both become 410) -- Express 5 rejects anything that is not an integer.
+    const value = st(this).compat === '4' ? Math.trunc(Number(code)) : code
+    if (!Number.isInteger(value) || value < 100 || value > 999) {
       throw new TypeError(`Invalid status code: ${code}`)
     }
-    this.statusCode = code
+    this.statusCode = value
     return this
   },
 
@@ -254,8 +256,8 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
 
   vary(this: ExpResponse, field?: string | string[]) {
     if (!field || (Array.isArray(field) && field.length === 0)) {
-      if (field === undefined) throw new TypeError('field argument is required')
-      if (typeof field === 'string' && field.length === 0) {
+      // Express 4 only deprecates a missing field name, so it is a no-op there.
+      if (st(this).compat === '5' && (field === undefined || field === '')) {
         throw new TypeError('field argument is required')
       }
       // An empty array has nothing to add and leaves an unset header unset, matching the `vary` package rather than writing out an empty Vary header.
@@ -409,8 +411,10 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
     return this.send(statusText(code))
   },
 
-  redirect(this: ExpResponse, a: number | string, b?: string) {
-    const status = typeof a === 'number' ? a : 302
+  redirect(this: ExpResponse, a: number | string, b?: number | string) {
+    // Express 4 still accepts the deprecated (url, status) order.
+    const legacy = st(this).compat === '4' && typeof a !== 'number' && typeof b === 'number'
+    const status = typeof a === 'number' ? a : legacy ? (b as number) : 302
     const url = typeof a === 'number' ? (b as string) : a
 
     this.location(url)
@@ -506,6 +510,9 @@ const methods: Partial<ExpResponse> & Record<string, unknown> = {
   },
 
   clearCookie(this: ExpResponse, name: string, options: CookieOptions = {}) {
+    // Express 4 lets an explicit expires/maxAge through; Express 5 ignores both so the cookie always expires immediately.
+    if (st(this).compat === '4')
+      return this.cookie(name, '', { expires: new Date(1), path: '/', ...options })
     const opts: CookieOptions = { path: '/', ...options, expires: new Date(1) }
     delete opts.maxAge
     return this.cookie(name, '', opts)
